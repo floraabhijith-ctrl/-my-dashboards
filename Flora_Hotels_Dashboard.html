@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flora Hotels — Performance Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+:root{
+  --bg:#F9F5F2;--card-bg:#ffffff;--text:#2d2035;--text-muted:#7a6b82;
+  --border:#E8DFD6;--accent:#523956;--accent-light:#F2E9E0;
+  --green:#16a34a;--green-bg:#dcfce7;--red:#dc2626;--red-bg:#fee2e2;
+  --flora-creek:#523956;--flora-barsha:#AB96BA;--flora-inn:#7B5E8A;
+  --pearl:#F2E9E0;--violet:#AB96BA;--ivory:#F9F5F2;
+  --radius:10px;--shadow:0 1px 3px rgba(82,57,86,.08),0 1px 2px rgba(82,57,86,.06);
+  --font:'Roboto',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);font-weight:400;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+.dashboard-wrapper{max-width:1440px;margin:0 auto;padding:16px}
+.header{background:linear-gradient(135deg,#523956 0%,#7B5E8A 100%);color:#fff;padding:24px;border-radius:var(--radius);margin-bottom:20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
+.header h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+.header-sub{opacity:.85;font-size:.85rem;margin-top:2px;font-weight:300}
+.header-actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--font)}
+.btn-upload{background:#fff;color:var(--accent)}
+.btn-upload:hover{background:var(--pearl)}
+.btn-export{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)}
+.btn-export:hover{background:rgba(255,255,255,.25)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#3d2a40}
+#fileInput{display:none}
+.card{background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:20px;border:1px solid var(--border)}
+.card-title{font-size:1.05rem;font-weight:700;margin-bottom:16px;color:var(--accent);display:flex;align-items:center;gap:8px}
+.card-title .icon{font-size:1.2rem}
+.section-title{font-size:1.15rem;font-weight:700;margin:28px 0 14px;color:var(--accent);padding-bottom:8px;border-bottom:2px solid var(--accent)}
+.filters-bar{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;align-items:flex-end}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-group label{font-size:.72rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+.filter-group select,.filter-group input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;background:#fff;min-width:160px;font-family:var(--font)}
+.filter-group select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(82,57,86,.12)}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi-card{background:var(--card-bg);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);border:1px solid var(--border);border-top:3px solid var(--accent)}
+.kpi-label{font-size:.78rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi-value{font-size:1.5rem;font-weight:700;color:var(--text);margin:4px 0}
+.kpi-card.creek{border-top-color:var(--flora-creek)}
+.kpi-card.barsha{border-top-color:var(--flora-barsha)}
+.kpi-card.inn{border-top-color:var(--flora-inn)}
+.property-card{background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);overflow:hidden}
+.property-card-header{padding:14px 18px;color:#fff;font-weight:700;font-size:.95rem}
+.property-card-header.creek{background:var(--flora-creek)}
+.property-card-header.barsha{background:var(--flora-barsha)}
+.property-card-header.inn{background:var(--flora-inn)}
+.property-card-body{padding:16px}
+.property-metric{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.property-metric:last-child{border-bottom:none}
+.property-metric-label{font-size:.82rem;color:var(--text-muted);font-weight:400}
+.property-metric-values{text-align:right}
+.property-metric-current{font-weight:700;font-size:.9rem}
+.property-metric-prev{font-size:.75rem;color:var(--text-muted)}
+.property-metric-var{font-size:.75rem;font-weight:500}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+thead th{background:var(--accent);color:#fff;padding:10px 12px;text-align:left;font-weight:500;white-space:nowrap;position:sticky;top:0;z-index:2}
+tbody td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr:hover{background:var(--accent-light)}
+tbody tr:nth-child(even){background:#faf7f4}
+tbody tr:nth-child(even):hover{background:var(--accent-light)}
+.var-up{color:var(--green);font-weight:500}
+.var-down{color:var(--red);font-weight:500}
+.arrow-up::before{content:'▲ ';font-size:.7em}
+.arrow-down::before{content:'▼ ';font-size:.7em}
+.chart-container{position:relative;width:100%;min-height:300px}
+.chart-container canvas{width:100%!important}
+.upload-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center;gap:20px}
+.upload-splash .upload-icon{font-size:4rem;color:var(--accent)}
+.upload-splash h2{font-size:1.4rem;color:var(--text);font-weight:700}
+.upload-splash p{color:var(--text-muted);max-width:400px;font-weight:300}
+.upload-zone{border:2px dashed var(--border);border-radius:16px;padding:40px 60px;cursor:pointer;transition:all .2s}
+.upload-zone:hover{border-color:var(--accent);background:var(--accent-light)}
+.upload-zone.drag-over{border-color:var(--accent);background:var(--accent-light)}
+.loading-overlay{position:fixed;inset:0;background:rgba(249,245,242,.92);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:16px}
+.spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+.tab-bar{display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid var(--border);padding-bottom:0}
+.tab-btn{padding:10px 18px;border:none;background:none;font-size:.85rem;font-weight:500;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;font-family:var(--font)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.tab-btn:hover{color:var(--accent)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.sub-section{margin-bottom:24px}
+.sub-section-title{font-size:.95rem;font-weight:700;color:var(--flora-creek);margin-bottom:10px;padding:8px 14px;background:var(--pearl);border-radius:8px;display:inline-block}
+.share-badge{display:inline-block;background:var(--pearl);color:var(--accent);padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:500}
+.total-row{font-weight:700;background:#f3eef5!important}
+/* Daily grid: 3 equal columns for charts and tables */
+.daily-grid{gap:14px!important}
+.daily-grid .card{margin-bottom:0}
+.daily-chart-card{background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);overflow:hidden}
+.daily-chart-card .dc-header{padding:10px 14px;color:#fff;font-weight:700;font-size:.88rem;text-align:center;letter-spacing:.02em}
+.daily-chart-card .dc-header.creek{background:var(--flora-creek)}
+.daily-chart-card .dc-header.barsha{background:var(--flora-barsha)}
+.daily-chart-card .dc-header.inn{background:var(--flora-inn)}
+.daily-chart-card .dc-body{padding:12px 8px 6px;position:relative;height:270px}
+.daily-chart-card .dc-body canvas{width:100%!important;height:100%!important}
+.daily-table-card{background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);overflow:hidden}
+.daily-table-card .dt-header{padding:10px 14px;color:#fff;font-weight:700;font-size:.85rem;text-align:center;letter-spacing:.02em}
+.daily-table-card .dt-header.creek{background:var(--flora-creek)}
+.daily-table-card .dt-header.barsha{background:var(--flora-barsha)}
+.daily-table-card .dt-header.inn{background:var(--flora-inn)}
+.daily-table-card .dt-body{overflow-x:auto;-webkit-overflow-scrolling:touch;max-height:560px;overflow-y:auto}
+.daily-table-card table{font-size:.73rem;border-collapse:collapse;width:100%}
+.daily-table-card thead th{padding:7px 6px;font-size:.67rem;position:sticky;top:0;z-index:2;text-align:center;white-space:nowrap;background:var(--accent);color:#fff;letter-spacing:.03em;text-transform:uppercase}
+.daily-table-card tbody td{padding:5px 6px;font-size:.72rem;text-align:center;border-bottom:1px solid #f0ebe5;white-space:nowrap}
+.daily-table-card tbody tr:nth-child(even){background:#faf7f4}
+.daily-table-card tbody tr:hover{background:var(--accent-light)}
+.daily-table-card .val-cell{font-weight:500}
+.daily-table-card .var-sub{display:block;font-size:.62rem;margin-top:1px;font-weight:500;line-height:1.1}
+@media(max-width:1024px){.grid-3{grid-template-columns:repeat(2,1fr)}.grid-4{grid-template-columns:repeat(2,1fr)}.daily-grid.grid-3{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:768px){.dashboard-wrapper{padding:10px}.header{padding:16px;flex-direction:column;align-items:flex-start}.header h1{font-size:1.2rem}.grid-3,.grid-2,.grid-4{grid-template-columns:1fr}.daily-grid.grid-3{grid-template-columns:1fr}.filters-bar{flex-direction:column}.filter-group select{min-width:100%}.kpi-value{font-size:1.2rem}.tab-btn{padding:8px 12px;font-size:.78rem}table{font-size:.72rem}thead th,tbody td{padding:6px 8px}}
+@media print{body{background:#fff}.header{-webkit-print-color-adjust:exact;print-color-adjust:exact}.btn,.filters-bar,.upload-splash,.tab-bar,#fileInput{display:none!important}.card,.kpi-card,.property-card{break-inside:avoid;page-break-inside:avoid}.tab-content{display:block!important}table{font-size:9px}.section-title{break-after:avoid}}
+.pdf-mode .tab-content{display:block!important}
+.pdf-mode .tab-bar,.pdf-mode .filters-bar,.pdf-mode .btn,.pdf-mode #fileInput,.pdf-mode #filtersCard{display:none!important}
+</style>
+</head>
+<body>
+<div id="loadingOverlay" class="loading-overlay hidden"><div class="spinner"></div><div style="font-weight:500;color:var(--accent)">Processing dashboard…</div></div>
+<div class="dashboard-wrapper" id="dashboardWrapper">
+<div class="header" id="dashHeader">
+  <div><h1>🏨 Flora Hotels — Performance Dashboard</h1><div class="header-sub" id="headerPeriod">Upload an Excel file to begin analysis</div></div>
+  <div class="header-actions">
+    <button class="btn btn-upload" onclick="document.getElementById('fileInput').click()">📁 Upload Excel</button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)">
+    <button class="btn btn-export hidden" id="btnExport" onclick="exportPDF()">📄 Export PDF</button>
+  </div>
+</div>
+<div id="uploadSplash" class="upload-splash">
+  <div class="upload-icon">📊</div><h2>Hotel Performance Dashboard</h2>
+  <p>Upload your monthly statistics Excel file to generate a comprehensive performance analysis across Flora Hotels.</p>
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <div style="font-size:2rem;margin-bottom:8px">📁</div>
+    <div style="font-weight:500;color:var(--text)">Click or drag & drop your Excel file</div>
+    <div style="font-size:.8rem;color:var(--text-muted);margin-top:4px">Supports .xlsx, .xls, .csv</div>
+  </div>
+</div>
+<div id="mainDashboard" class="hidden">
+  <div class="card" id="filtersCard"><div class="card-title"><span class="icon">🔍</span> Dashboard Filters</div>
+    <div class="filters-bar" id="filtersBar">
+      <div class="filter-group"><label>Period / Month</label><select id="filterPeriod" onchange="applyFilters()"></select></div>
+      <div class="filter-group"><label>Property</label><select id="filterProperty" onchange="applyFilters()"></select></div>
+      <div class="filter-group"><label>MKT Group</label><select id="filterMktGroup" onchange="applyFilters()"></select></div>
+      <div class="filter-group"><label>Account Manager</label><select id="filterAccMgr" onchange="applyFilters()"></select></div>
+      <div class="filter-group"><label>Country</label><select id="filterCountry" onchange="applyFilters()"></select></div>
+      <div class="filter-group"><label>Account</label><select id="filterAccount" onchange="applyFilters()"></select></div>
+      <div class="filter-group" style="justify-content:flex-end"><button class="btn btn-primary" onclick="resetFilters()">Reset All</button></div>
+    </div>
+  </div>
+  <div class="tab-bar" id="tabBar">
+    <button class="tab-btn active" data-tab="tab-executive" onclick="switchTab(this)">Executive Summary</button>
+    <button class="tab-btn" data-tab="tab-property" onclick="switchTab(this)">Property Comparison</button>
+    <button class="tab-btn" data-tab="tab-daily" onclick="switchTab(this)">Daily Performance</button>
+    <button class="tab-btn" data-tab="tab-mkt" onclick="switchTab(this)">MKT Group Variance</button>
+    <button class="tab-btn" data-tab="tab-segment" onclick="switchTab(this)">Segment Comparison</button>
+    <button class="tab-btn" data-tab="tab-accmgr" onclick="switchTab(this)">Account Managers</button>
+    <button class="tab-btn" data-tab="tab-lei" onclick="switchTab(this)">LEI / LEGRP</button>
+    <button class="tab-btn" data-tab="tab-top10" onclick="switchTab(this)">Top 10 Accounts</button>
+  </div>
+
+  <!-- TAB 1 -->
+  <div class="tab-content active" id="tab-executive">
+    <h2 class="section-title">📋 Executive Summary</h2>
+    <div class="grid-3" id="execKpiCards"></div>
+    <div class="grid-2" style="margin-top:20px">
+      <div class="card"><div class="card-title"><span class="icon">📊</span> Revenue Comparison</div><div class="chart-container"><canvas id="chartExecRevenue"></canvas></div></div>
+      <div class="card"><div class="card-title"><span class="icon">📊</span> Occupancy Comparison</div><div class="chart-container"><canvas id="chartExecOcc"></canvas></div></div>
+    </div>
+  </div>
+  <!-- TAB 2 -->
+  <div class="tab-content" id="tab-property">
+    <h2 class="section-title">🏢 Property Performance Comparison</h2>
+    <div class="grid-3" id="propertyCards"></div>
+    <div class="card" style="margin-top:16px"><div class="card-title"><span class="icon">📊</span> Property KPI Comparison — Room Nights</div><div class="chart-container"><canvas id="chartPropertyCompare"></canvas></div></div>
+  </div>
+  <!-- TAB 3 -->
+  <div class="tab-content" id="tab-daily">
+    <h2 class="section-title">📅 Daily Performance</h2>
+    <div class="card-title" style="margin-bottom:8px"><span class="icon">📈</span> Daily Trend — OCC%</div>
+    <div class="grid-3 daily-grid" id="dailyChartsRow"></div>
+    <div class="card-title" style="margin:20px 0 8px"><span class="icon">📋</span> Daily Breakup by Property</div>
+    <div class="grid-3 daily-grid" id="dailyTablesRow"></div>
+  </div>
+  <!-- TAB 4 -->
+  <div class="tab-content" id="tab-mkt">
+    <h2 class="section-title">📦 MKT Group Room Nights Variance</h2>
+    <div class="card-title" style="margin-bottom:8px"><span class="icon">📊</span> Visual Comparison</div>
+    <div class="grid-3 daily-grid" id="mktChartsRow"></div>
+    <div class="card-title" style="margin:20px 0 8px"><span class="icon">📋</span> Table Comparison</div>
+    <div class="grid-3 daily-grid" id="mktTablesRow"></div>
+  </div>
+  <!-- TAB 5 -->
+  <div class="tab-content" id="tab-segment">
+    <h2 class="section-title">🔀 Segment Comparison — OCC%</h2>
+    <div class="card-title" style="margin-bottom:8px"><span class="icon">📊</span> OCC% by Segment</div>
+    <div class="grid-3 daily-grid" id="segChartsRow"></div>
+    <div class="card-title" style="margin:20px 0 8px"><span class="icon">📋</span> Table Comparison</div>
+    <div class="grid-3 daily-grid" id="segTablesRow"></div>
+  </div>
+  <!-- TAB 6 -->
+  <div class="tab-content" id="tab-accmgr">
+    <h2 class="section-title">👤 Account Manager Comparison</h2>
+    <p style="color:var(--text-muted);margin-bottom:16px;font-size:.85rem;font-weight:300">MKT Groups: COR, CORPL, AIR, CGRP</p>
+    <div class="card-title" style="margin-bottom:8px"><span class="icon">📊</span> Visual Comparison</div>
+    <div class="grid-3 daily-grid" id="amChartsRow"></div>
+    <div class="card-title" style="margin:20px 0 8px"><span class="icon">📋</span> Table Comparison</div>
+    <div class="grid-3 daily-grid" id="amTablesRow"></div>
+  </div>
+  <!-- TAB 7 -->
+  <div class="tab-content" id="tab-lei">
+    <h2 class="section-title">🏷️ LEI & LEGRP — Room Nights</h2>
+    <div class="card-title" style="margin-bottom:8px"><span class="icon">📊</span> Visual Comparison</div>
+    <div class="grid-3 daily-grid" id="leiChartsRow"></div>
+    <div class="card-title" style="margin:20px 0 8px"><span class="icon">📋</span> Table Comparison</div>
+    <div class="grid-3 daily-grid" id="leiTablesRow"></div>
+  </div>
+  <!-- TAB 8 -->
+  <div class="tab-content" id="tab-top10">
+    <h2 class="section-title">🏆 Top 10 Accounts by Room Nights</h2>
+    <div class="filters-bar" id="top10Filters" style="margin-bottom:16px">
+      <div class="filter-group"><label>Month</label><select id="top10Month" onchange="renderTop10()"></select></div>
+      <div class="filter-group"><label>MKT Group</label><select id="top10Mkt" onchange="renderTop10()"><option value="All">All</option></select></div>
+      <div class="filter-group"><label>Account Manager</label><select id="top10AccMgr" onchange="renderTop10()"><option value="All">All</option></select></div>
+    </div>
+    <div class="grid-3 daily-grid" id="top10Row"></div>
+  </div>
+</div>
+</div>
+
+<script>
+/* ===== GLOBALS ===== */
+let RAW_DATA=[], CURRENT_MONTH='', PREV_MONTH='';
+let CI={}; // chart instances
+
+const PC={
+  FCHDXB:{name:'Flora Creek',rooms:180,color:'#523956',colorLight:'#e8dded',cls:'creek'},
+  FAHDXB:{name:'Flora Al Barsha',rooms:186,color:'#AB96BA',colorLight:'#f0eaf4',cls:'barsha'},
+  FIHDXB:{name:'Flora Inn',rooms:227,color:'#7B5E8A',colorLight:'#ede4f0',cls:'inn'}
+};
+const PROPS=['FCHDXB','FAHDXB','FIHDXB'];
+const TRACKED_MGR=['Arun Anand Raja','Sadik P. C.','Nadia Waqas','Christzelle Mirasol','Muhammad Awais Arshad'];
+const AM_MKT=['COR','CORPL','AIR','CGRP'];
+const TOP10_MKT=['COR','CORPL','LEI','LEGRP','CGRP','AIR'];
+
+/* Column mapping for flexible file headers */
+const COL_MAP={'business date':'date',businessdate:'date',date:'date',nights:'nights','room nights':'nights',revenue:'revenue',adults:'adults',children:'children',mkt:'mkt',market:'mkt',room:'room','mkt group':'mktGroup',mktgroup:'mktGroup',mkt_group:'mktGroup',period:'period','period (description)':'period',property:'property',account:'account','account manager':'accountManager',accountmanager:'accountManager','rate code':'rateCode',ratecode:'rateCode',country:'country'};
+
+/* ===== HELPERS ===== */
+const pn=c=>PC[c]?PC[c].name:c;
+const fmt=(n,d=0)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtPct=n=>n==null||isNaN(n)?'—':n.toFixed(1)+'%';
+const fmtAED=n=>n==null||isNaN(n)?'—':'AED '+fmt(n,0);
+const fmtAEDSigned=n=>{if(n==null||isNaN(n))return'—';const s=n>=0?'+':'';return'AED '+s+fmt(n,0);};
+
+function varHtml(c,p,isPct=false){
+  if(p==null||c==null)return'<span style="color:var(--text-muted)">—</span>';
+  const d=c-p;const up=d>=0;const cls=up?'var-up arrow-up':'var-down arrow-down';
+  if(isPct){const pct=p?((d/Math.abs(p))*100):0;return`<span class="${cls}">${fmtPct(Math.abs(pct))}</span>`;}
+  return`<span class="${cls}">${fmt(Math.abs(d))}</span>`;
+}
+function varPctHtml(c,p){
+  if(p==null||p===0||c==null)return'<span style="color:var(--text-muted)">—</span>';
+  const pct=((c-p)/Math.abs(p))*100;const cls=pct>=0?'var-up arrow-up':'var-down arrow-down';
+  return`<span class="${cls}">${fmtPct(Math.abs(pct))}</span>`;
+}
+function varAEDHtml(c,p){
+  if(p==null||c==null)return'<span style="color:var(--text-muted)">—</span>';
+  const d=c-p;const cls=d>=0?'var-up arrow-up':'var-down arrow-down';
+  return`<span class="${cls}">${fmtAEDSigned(d)}</span>`;
+}
+function varComboHtml(c,p){
+  // Shows AED value + pct
+  if(p==null||c==null)return'<span style="color:var(--text-muted)">—</span>';
+  const d=c-p;const pct=p?((d/Math.abs(p))*100):0;
+  const cls=d>=0?'var-up':'var-down';const arr=d>=0?'arrow-up':'arrow-down';
+  return`<span class="${cls} ${arr}">${fmtAEDSigned(d)} / ${fmtPct(Math.abs(pct))}</span>`;
+}
+/* OCC% variance as percentage-point difference (not growth %).
+   Example: 55.8% vs 43.5% → +12.3% (not +28.3%) */
+function varOccHtml(c,p){
+  if(p==null||c==null)return'<span style="color:var(--text-muted)">—</span>';
+  const d=c-p;const cls=d>=0?'var-up arrow-up':'var-down arrow-down';
+  return`<span class="${cls}">${d>=0?'+':''}${d.toFixed(1)}%</span>`;
+}
+
+/* ===== CHART HELPERS ===== */
+/* Register datalabels globally */
+Chart.register(ChartDataLabels);
+Chart.defaults.set('plugins.datalabels',{display:false}); // off by default
+
+function gc(id){if(CI[id]){CI[id].destroy();delete CI[id];}return document.getElementById(id).getContext('2d');}
+
+function dlOpts(fmt,clr='#333',anchor='end',align='top',sz=10){
+  return{display:true,color:clr,anchor,align,font:{size:sz,weight:500,family:'Roboto'},formatter:fmt};
+}
+
+/* ===== FILE UPLOAD ===== */
+document.addEventListener('DOMContentLoaded',()=>{
+  const z=document.getElementById('uploadZone');if(!z)return;
+  z.addEventListener('dragover',e=>{e.preventDefault();z.classList.add('drag-over');});
+  z.addEventListener('dragleave',()=>z.classList.remove('drag-over'));
+  z.addEventListener('drop',e=>{e.preventDefault();z.classList.remove('drag-over');if(e.dataTransfer.files.length)processFile(e.dataTransfer.files[0]);});
+});
+function handleFileUpload(e){const f=e.target.files[0];if(f)processFile(f);}
+function processFile(file){
+  showLoading(true);
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      const json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+      if(!json.length){alert('No data found.');showLoading(false);return;}
+      const hdrs=Object.keys(json[0]);const cm={};
+      hdrs.forEach(h=>{const k=h.trim().toLowerCase();if(COL_MAP[k])cm[h]=COL_MAP[k];});
+      RAW_DATA=json.map(row=>{
+        const r={};Object.keys(row).forEach(h=>{if(cm[h])r[cm[h]]=row[h];});
+        if(r.date){if(r.date instanceof Date){}else if(typeof r.date==='number')r.date=new Date((r.date-25569)*864e5);else r.date=new Date(r.date);}
+        if(r.mktGroup)r.mktGroup=String(r.mktGroup).trim().toUpperCase();
+        if(r.property)r.property=String(r.property).trim().toUpperCase();
+        if(r.period)r.period=String(r.period).trim();
+        r.nights=Number(r.nights)||0;r.revenue=Number(r.revenue)||0;
+        r.accountManager=r.accountManager?String(r.accountManager).trim():'';
+        r.account=r.account?String(r.account).trim():'';
+        r.country=r.country?String(r.country).trim():'';
+        return r;
+      }).filter(r=>r.date&&!isNaN(r.date.getTime()));
+      detectMonths();buildDashboard();
+    }catch(err){alert('Error: '+err.message);console.error(err);}
+    showLoading(false);
+  };reader.readAsArrayBuffer(file);
+}
+function detectMonths(){
+  const periods=[...new Set(RAW_DATA.map(r=>r.period))].filter(Boolean);
+  if(periods.length>=2){
+    const pd={};RAW_DATA.forEach(r=>{if(r.period&&!pd[r.period])pd[r.period]=r.date;});
+    periods.sort((a,b)=>pd[a]-pd[b]);
+    PREV_MONTH=periods[periods.length-2];CURRENT_MONTH=periods[periods.length-1];
+  }else if(periods.length===1){CURRENT_MONTH=periods[0];PREV_MONTH='';}
+}
+function showLoading(s){document.getElementById('loadingOverlay').classList.toggle('hidden',!s);}
+
+/* ===== BUILD ===== */
+function buildDashboard(){
+  document.getElementById('uploadSplash').classList.add('hidden');
+  document.getElementById('mainDashboard').classList.remove('hidden');
+  document.getElementById('btnExport').classList.remove('hidden');
+  document.getElementById('headerPeriod').textContent=`Comparing: ${CURRENT_MONTH} (Current) vs ${PREV_MONTH} (Previous)`;
+  populateFilters();applyFilters();
+}
+
+/* ===== FILTERS ===== */
+function populateFilters(){
+  const per=[...new Set(RAW_DATA.map(r=>r.period))].filter(Boolean);
+  const prop=[...new Set(RAW_DATA.map(r=>r.property))].filter(Boolean);
+  const mkt=[...new Set(RAW_DATA.map(r=>r.mktGroup))].filter(Boolean).sort();
+  const mgr=[...new Set(RAW_DATA.map(r=>r.accountManager))].filter(Boolean).sort();
+  const cty=[...new Set(RAW_DATA.map(r=>r.country))].filter(Boolean).sort();
+  const acc=[...new Set(RAW_DATA.map(r=>r.account))].filter(Boolean).sort();
+  fillSel('filterPeriod',['All',...per],CURRENT_MONTH);
+  fillSel('filterProperty',['All',...prop],'All',true);
+  fillSel('filterMktGroup',['All',...mkt],'All');
+  fillSel('filterAccMgr',['All',...mgr],'All');
+  fillSel('filterCountry',['All',...cty],'All');
+  fillSel('filterAccount',['All',...acc],'All');
+  fillSel('top10Month',per,CURRENT_MONTH);
+  fillSel('top10Mkt',['All',...TOP10_MKT],'All');
+  fillSel('top10AccMgr',['All',...mgr],'All');
+}
+function fillSel(id,opts,def,useName=false){
+  const s=document.getElementById(id);if(!s)return;s.innerHTML='';
+  opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=(useName&&o!=='All')?pn(o):o;if(o===def)op.selected=true;s.appendChild(op);});
+}
+function applyFilters(){renderExecutiveSummary();renderPropertyComparison();renderDailyTable();renderMktGroupVariance();renderSegmentComparison();renderAccountManagerSection();renderLeiSection();renderTop10();}
+function resetFilters(){
+  document.getElementById('filterPeriod').value=CURRENT_MONTH;
+  ['filterProperty','filterMktGroup','filterAccMgr','filterCountry','filterAccount'].forEach(id=>document.getElementById(id).value='All');
+  applyFilters();
+}
+function getFiltered(){
+  let d=[...RAW_DATA];
+  const v=id=>document.getElementById(id).value;
+  if(v('filterProperty')!=='All')d=d.filter(r=>r.property===v('filterProperty'));
+  if(v('filterMktGroup')!=='All')d=d.filter(r=>r.mktGroup===v('filterMktGroup'));
+  if(v('filterAccMgr')!=='All')d=d.filter(r=>r.accountManager===v('filterAccMgr'));
+  if(v('filterCountry')!=='All')d=d.filter(r=>r.country===v('filterCountry'));
+  if(v('filterAccount')!=='All')d=d.filter(r=>r.account===v('filterAccount'));
+  return d;
+}
+function md(d,m){return d.filter(r=>r.period===m);}
+
+function switchTab(btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');document.getElementById(btn.dataset.tab).classList.add('active');
+}
+
+/* ===== METRICS HELPERS ===== */
+function propMetrics(data,prop){
+  const cfg=PC[prop];
+  const rows=data.filter(r=>r.property===prop);
+  const n=rows.reduce((s,r)=>s+r.nights,0);
+  const rev=rows.reduce((s,r)=>s+r.revenue,0);
+  const days=new Set(rows.map(r=>r.date.getDate())).size||1;
+  const occ=(n/(cfg.rooms*days))*100;
+  const adr=n?rev/n:0;
+  return{nights:n,revenue:rev,occ,adr,days};
+}
+
+/* ==================================================================
+   SECTION 1: EXECUTIVE SUMMARY
+   ================================================================== */
+function renderExecutiveSummary(){
+  const el=document.getElementById('execKpiCards');el.innerHTML='';
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const cur=propMetrics(md(RAW_DATA,CURRENT_MONTH),prop);
+    const prev=propMetrics(md(RAW_DATA,PREV_MONTH),prop);
+    const revDiff=cur.revenue-prev.revenue;
+
+    el.innerHTML+=`
+    <div class="kpi-card ${cfg.cls}">
+      <div class="kpi-label">${cfg.name}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+        <div><div style="font-size:.72rem;color:var(--text-muted)">Room Nights</div>
+          <div style="font-size:1.2rem;font-weight:700">${fmt(cur.nights)}</div>
+          <div>${varHtml(cur.nights,prev.nights)} ${varPctHtml(cur.nights,prev.nights)}</div></div>
+        <div><div style="font-size:.72rem;color:var(--text-muted)">Revenue</div>
+          <div style="font-size:1.2rem;font-weight:700">${fmtAED(cur.revenue)}</div>
+          <div>${varComboHtml(cur.revenue,prev.revenue)}</div></div>
+        <div><div style="font-size:.72rem;color:var(--text-muted)">OCC%</div>
+          <div style="font-size:1.2rem;font-weight:700">${fmtPct(cur.occ)}</div>
+          <div>${varOccHtml(cur.occ,prev.occ)}</div></div>
+        <div><div style="font-size:.72rem;color:var(--text-muted)">ADR</div>
+          <div style="font-size:1.2rem;font-weight:700">${fmtAED(cur.adr)}</div>
+          <div>${varPctHtml(cur.adr,prev.adr)}</div></div>
+      </div>
+    </div>`;
+  });
+
+  /* Revenue chart with AED data labels + variance */
+  const ctx1=gc('chartExecRevenue');
+  const cRevs=PROPS.map(p=>propMetrics(md(RAW_DATA,CURRENT_MONTH),p).revenue);
+  const pRevs=PROPS.map(p=>propMetrics(md(RAW_DATA,PREV_MONTH),p).revenue);
+  CI['chartExecRevenue']=new Chart(ctx1,{type:'bar',data:{
+    labels:PROPS.map(p=>PC[p].name),
+    datasets:[
+      {label:CURRENT_MONTH,data:cRevs,backgroundColor:PROPS.map(p=>PC[p].color),datalabels:dlOpts(v=>'AED '+(v/1000).toFixed(0)+'K','#fff','center','center',10)},
+      {label:PREV_MONTH,data:pRevs,backgroundColor:PROPS.map(p=>PC[p].colorLight),borderColor:PROPS.map(p=>PC[p].color),borderWidth:1,datalabels:dlOpts(v=>'AED '+(v/1000).toFixed(0)+'K','#555','end','top',9)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{family:'Roboto'}}},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': AED '+fmt(ctx.raw)}}},scales:{y:{beginAtZero:true,ticks:{callback:v=>'AED '+(v/1000).toFixed(0)+'K',font:{family:'Roboto'}}}}}});
+
+  /* OCC chart with % labels */
+  const ctx2=gc('chartExecOcc');
+  const cOccs=PROPS.map(p=>propMetrics(md(RAW_DATA,CURRENT_MONTH),p).occ);
+  const pOccs=PROPS.map(p=>propMetrics(md(RAW_DATA,PREV_MONTH),p).occ);
+  CI['chartExecOcc']=new Chart(ctx2,{type:'bar',data:{
+    labels:PROPS.map(p=>PC[p].name),
+    datasets:[
+      {label:CURRENT_MONTH,data:cOccs,backgroundColor:PROPS.map(p=>PC[p].color),datalabels:dlOpts(v=>v.toFixed(1)+'%','#fff','center','center',11)},
+      {label:PREV_MONTH,data:pOccs,backgroundColor:PROPS.map(p=>PC[p].colorLight),borderColor:PROPS.map(p=>PC[p].color),borderWidth:1,datalabels:dlOpts(v=>v.toFixed(1)+'%','#555','end','top',9)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,ticks:{callback:v=>v+'%'}}}}});
+}
+
+/* ==================================================================
+   SECTION 2: PROPERTY COMPARISON
+   ================================================================== */
+function renderPropertyComparison(){
+  const el=document.getElementById('propertyCards');el.innerHTML='';
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const c=propMetrics(md(RAW_DATA,CURRENT_MONTH),prop);
+    const p=propMetrics(md(RAW_DATA,PREV_MONTH),prop);
+    const metrics=[
+      {l:'Room Nights',cv:fmt(c.nights),pv:fmt(p.nights),v:varPctHtml(c.nights,p.nights)},
+      {l:'Revenue',cv:fmtAED(c.revenue),pv:fmtAED(p.revenue),v:varComboHtml(c.revenue,p.revenue)},
+      {l:'OCC%',cv:fmtPct(c.occ),pv:fmtPct(p.occ),v:varOccHtml(c.occ,p.occ)},
+      {l:'ADR',cv:fmtAED(c.adr),pv:fmtAED(p.adr),v:varPctHtml(c.adr,p.adr)},
+    ];
+    el.innerHTML+=`<div class="property-card"><div class="property-card-header ${cfg.cls}">${cfg.name}</div><div class="property-card-body">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:.72rem;color:var(--text-muted);font-weight:500"><span>Metric</span><span>${CURRENT_MONTH} / ${PREV_MONTH} / Var</span></div>
+      ${metrics.map(m=>`<div class="property-metric"><div class="property-metric-label">${m.l}</div><div class="property-metric-values"><span class="property-metric-current">${m.cv}</span><span class="property-metric-prev"> / ${m.pv}</span> ${m.v}</div></div>`).join('')}
+    </div></div>`;
+  });
+
+  /* KPI chart with data labels */
+  const ctx=gc('chartPropertyCompare');
+  const cN=PROPS.map(p=>propMetrics(md(RAW_DATA,CURRENT_MONTH),p).nights);
+  const pN=PROPS.map(p=>propMetrics(md(RAW_DATA,PREV_MONTH),p).nights);
+  CI['chartPropertyCompare']=new Chart(ctx,{type:'bar',data:{
+    labels:PROPS.map(p=>PC[p].name),
+    datasets:[
+      {label:`${CURRENT_MONTH} Nights`,data:cN,backgroundColor:PROPS.map(p=>PC[p].color),datalabels:dlOpts(v=>fmt(v),'#fff','center','center',11)},
+      {label:`${PREV_MONTH} Nights`,data:pN,backgroundColor:PROPS.map(p=>PC[p].colorLight),borderColor:PROPS.map(p=>PC[p].color),borderWidth:1,datalabels:dlOpts(v=>fmt(v),'#555','end','top',9)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true}}}});
+}
+
+/* ==================================================================
+   SECTION 3: DAILY PERFORMANCE
+   ================================================================== */
+function renderDailyTable(){
+  const data=getFiltered();
+  const pf=document.getElementById('filterProperty').value;
+  const props=pf!=='All'?[pf]:PROPS;
+  const curData=md(data,CURRENT_MONTH), prevData=md(data,PREV_MONTH);
+  const allDays=[...new Set([...curData.map(r=>r.date.getDate()),...prevData.map(r=>r.date.getDate())])].sort((a,b)=>a-b);
+  const curDays=[...new Set(curData.map(r=>r.date.getDate()))].sort((a,b)=>a-b);
+
+  /* Inline variance helper: value on top, small colored variance below */
+  function cellV(val,valFmt,cur,prev,mode){
+    // mode: 'num','pct','aed','occ' (occ = percentage-point diff)
+    let varStr='';
+    if(prev!=null&&cur!=null){
+      const d=cur-prev;
+      if(mode==='aed'){
+        const cls=d>=0?'color:var(--green)':'color:var(--red)';
+        const sign=d>=0?'+':'';
+        varStr=`<span class="var-sub" style="${cls}">${sign}${fmt(Math.abs(d))}</span>`;
+      }else if(mode==='occ'){
+        /* Percentage-point difference: 55.8% - 43.5% = +12.3% */
+        const cls=d>=0?'color:var(--green)':'color:var(--red)';
+        const arr=d>=0?'▲':'▼';
+        varStr=`<span class="var-sub" style="${cls}">${arr} ${Math.abs(d).toFixed(1)}%</span>`;
+      }else if(mode==='pct'){
+        const pct=prev?((d/Math.abs(prev))*100):0;
+        const cls=pct>=0?'color:var(--green)':'color:var(--red)';
+        const arr=pct>=0?'▲':'▼';
+        varStr=`<span class="var-sub" style="${cls}">${arr} ${Math.abs(pct).toFixed(1)}%</span>`;
+      }else{
+        const cls=d>=0?'color:var(--green)':'color:var(--red)';
+        const arr=d>=0?'▲':'▼';
+        varStr=`<span class="var-sub" style="${cls}">${arr} ${fmt(Math.abs(d))}</span>`;
+      }
+    }
+    return`<td class="val-cell">${valFmt}${varStr}</td>`;
+  }
+
+  /* ---- Build chart cards ---- */
+  const chartsRow=document.getElementById('dailyChartsRow');
+  chartsRow.innerHTML='';
+  props.forEach(prop=>{
+    const cfg=PC[prop];
+    const cid=`chartDaily_${prop}`;
+    chartsRow.innerHTML+=`<div class="daily-chart-card"><div class="dc-header ${cfg.cls}">${cfg.name}</div><div class="dc-body"><canvas id="${cid}"></canvas></div></div>`;
+  });
+  chartsRow.style.gridTemplateColumns=props.length===1?'1fr':`repeat(${props.length},1fr)`;
+
+  /* ---- Build table cards ---- */
+  const tablesRow=document.getElementById('dailyTablesRow');
+  tablesRow.innerHTML='';
+
+  props.forEach(prop=>{
+    const cfg=PC[prop];
+    let t=`<table><thead><tr><th>Day</th><th>Nights</th><th>OCC%</th><th>Revenue</th><th>ADR</th></tr></thead><tbody>`;
+    curDays.forEach(day=>{
+      const cd=curData.filter(r=>r.date.getDate()===day&&r.property===prop);
+      const pd=prevData.filter(r=>r.date.getDate()===day&&r.property===prop);
+      const cN=cd.reduce((s,r)=>s+r.nights,0),pN=pd.reduce((s,r)=>s+r.nights,0);
+      const cR=cd.reduce((s,r)=>s+r.revenue,0),pR=pd.reduce((s,r)=>s+r.revenue,0);
+      const cOcc=(cN/cfg.rooms)*100,pOcc=(pN/cfg.rooms)*100;
+      const cAdr=cN?cR/cN:0,pAdr=pN?pR/pN:0;
+      t+=`<tr><td style="font-weight:600">${day}</td>`;
+      t+=cellV(cN,fmt(cN),cN,pN,'num');
+      t+=cellV(cOcc,cOcc.toFixed(1)+'%',cOcc,pOcc,'occ');
+      t+=cellV(cR,'AED '+fmt(cR),cR,pR,'aed');
+      t+=cellV(cAdr,'AED '+fmt(cAdr),cAdr,pAdr,'pct');
+      t+=`</tr>`;
+    });
+    t+='</tbody></table>';
+    tablesRow.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+  tablesRow.style.gridTemplateColumns=props.length===1?'1fr':`repeat(${props.length},1fr)`;
+
+  /* ---- Render per-property OCC% charts (clean, no per-point labels) ---- */
+  setTimeout(()=>{
+    props.forEach(prop=>{
+      const cfg=PC[prop];
+      const cid=`chartDaily_${prop}`;
+      const ctx=gc(cid);
+      const curLine=allDays.map(d=>{const n=curData.filter(r=>r.date.getDate()===d&&r.property===prop).reduce((s,r)=>s+r.nights,0);return(n/cfg.rooms)*100;});
+      const prevLine=allDays.map(d=>{const n=prevData.filter(r=>r.date.getDate()===d&&r.property===prop).reduce((s,r)=>s+r.nights,0);return(n/cfg.rooms)*100;});
+      CI[cid]=new Chart(ctx,{type:'line',data:{
+        labels:allDays.map(d=>String(d)),
+        datasets:[
+          {label:CURRENT_MONTH,data:curLine,borderColor:cfg.color,backgroundColor:cfg.color+'15',fill:true,tension:.35,pointRadius:2.5,pointBackgroundColor:cfg.color,pointBorderColor:'#fff',pointBorderWidth:1.5,borderWidth:2.5,pointHoverRadius:5,datalabels:{display:false}},
+          {label:PREV_MONTH,data:prevLine,borderColor:'#b0a3b5',borderDash:[5,4],backgroundColor:'transparent',fill:false,tension:.35,pointRadius:1.5,pointBackgroundColor:'#b0a3b5',borderWidth:1.8,pointHoverRadius:4,datalabels:{display:false}}
+        ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{font:{family:'Roboto',size:10,weight:'500'},boxWidth:14,padding:10,usePointStyle:true,pointStyle:'circle'}},tooltip:{backgroundColor:'rgba(82,57,86,.92)',titleFont:{family:'Roboto',size:11},bodyFont:{family:'Roboto',size:11},padding:10,cornerRadius:8,displayColors:true,callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.raw.toFixed(1)+'%';}}}},scales:{y:{beginAtZero:true,max:100,grid:{color:'rgba(82,57,86,.06)'},ticks:{callback:v=>v+'%',font:{size:9,family:'Roboto'},stepSize:20}},x:{grid:{display:false},ticks:{font:{size:8,family:'Roboto'},maxRotation:0,autoSkip:true,maxTicksLimit:16}}}}});
+    });
+  },60);
+}
+
+/* ==================================================================
+   SECTION 4: MKT GROUP VARIANCE — 3 SIDE-BY-SIDE
+   ================================================================== */
+function renderMktGroupVariance(){
+  const chartsEl=document.getElementById('mktChartsRow');chartsEl.innerHTML='';
+  const tablesEl=document.getElementById('mktTablesRow');tablesEl.innerHTML='';
+  const data=getFiltered();
+
+  /* Build HTML for all 3 first */
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartMkt_${prop}`;
+    chartsEl.innerHTML+=`<div class="daily-chart-card"><div class="dc-header ${cfg.cls}">${cfg.name}</div><div class="dc-body"><canvas id="${cid}"></canvas></div></div>`;
+  });
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const curD=md(data,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(data,PREV_MONTH).filter(r=>r.property===prop);
+    const mktGroups=[...new Set([...curD.map(r=>r.mktGroup),...prevD.map(r=>r.mktGroup)])].filter(Boolean).sort();
+    const rows=mktGroups.map(m=>{const cN=curD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);const pN=prevD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);return{mkt:m,cN,pN,diff:cN-pN,pct:pN?((cN-pN)/pN*100):(cN?100:0)};}).sort((a,b)=>b.cN-a.cN);
+    const tC=rows.reduce((s,r)=>s+r.cN,0),tP=rows.reduce((s,r)=>s+r.pN,0),tD=tC-tP,tPc=tP?(tD/tP*100):0;
+    let t=`<table><thead><tr><th>MKT</th><th>${CURRENT_MONTH}</th><th>${PREV_MONTH}</th><th>Var</th><th>%</th></tr></thead><tbody>`;
+    rows.forEach(r=>{const c=r.diff>=0?'var-up arrow-up':'var-down arrow-down';t+=`<tr><td><strong>${r.mkt}</strong></td><td>${fmt(r.cN)}</td><td>${fmt(r.pN)}</td><td><span class="${c}">${fmt(Math.abs(r.diff))}</span></td><td><span class="${c}">${fmtPct(Math.abs(r.pct))}</span></td></tr>`;});
+    const tc=tD>=0?'var-up arrow-up':'var-down arrow-down';
+    t+=`<tr class="total-row"><td>TOTAL</td><td>${fmt(tC)}</td><td>${fmt(tP)}</td><td><span class="${tc}">${fmt(Math.abs(tD))}</span></td><td><span class="${tc}">${fmtPct(Math.abs(tPc))}</span></td></tr></tbody></table>`;
+    tablesEl.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+
+  /* Render charts */
+  setTimeout(()=>{PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartMkt_${prop}`;const ctx=gc(cid);
+    const curD=md(data,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(data,PREV_MONTH).filter(r=>r.property===prop);
+    const mktGroups=[...new Set([...curD.map(r=>r.mktGroup),...prevD.map(r=>r.mktGroup)])].filter(Boolean).sort();
+    const rows=mktGroups.map(m=>({mkt:m,cN:curD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0),pN:prevD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0)})).sort((a,b)=>b.cN-a.cN);
+    CI[cid]=new Chart(ctx,{type:'bar',data:{labels:rows.map(r=>r.mkt),datasets:[
+      {label:CURRENT_MONTH,data:rows.map(r=>r.cN),backgroundColor:cfg.color,datalabels:dlOpts(v=>fmt(v),'#fff','center','center',8)},
+      {label:PREV_MONTH,data:rows.map(r=>r.pN),backgroundColor:cfg.colorLight,borderColor:cfg.color,borderWidth:1,datalabels:dlOpts(v=>fmt(v),'#444','end','top',7)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:9,family:'Roboto'},boxWidth:10}}},scales:{y:{beginAtZero:true,ticks:{font:{size:8}}},x:{ticks:{font:{size:8}}}}}});
+  });},60);
+}
+
+/* ==================================================================
+   SECTION 5: SEGMENT COMPARISON — OCC% — 3 SIDE-BY-SIDE
+   ================================================================== */
+function renderSegmentComparison(){
+  const chartsEl=document.getElementById('segChartsRow');chartsEl.innerHTML='';
+  const tablesEl=document.getElementById('segTablesRow');tablesEl.innerHTML='';
+
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartSeg_${prop}`;
+    chartsEl.innerHTML+=`<div class="daily-chart-card"><div class="dc-header ${cfg.cls}">${cfg.name}</div><div class="dc-body"><canvas id="${cid}"></canvas></div></div>`;
+  });
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const curD=md(RAW_DATA,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(RAW_DATA,PREV_MONTH).filter(r=>r.property===prop);
+    const cDays=new Set(curD.map(r=>r.date.getDate())).size||1;
+    const pDays=new Set(prevD.map(r=>r.date.getDate())).size||1;
+    const mkts=[...new Set([...curD.map(r=>r.mktGroup),...prevD.map(r=>r.mktGroup)])].filter(Boolean).sort();
+    const rows=mkts.map(m=>{const cN=curD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);const pN=prevD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);const cOcc=(cN/(cfg.rooms*cDays))*100;const pOcc=(pN/(cfg.rooms*pDays))*100;return{mkt:m,cOcc,pOcc,diff:cOcc-pOcc};}).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+    let t=`<table><thead><tr><th>MKT</th><th>${CURRENT_MONTH}</th><th>${PREV_MONTH}</th><th>Diff</th></tr></thead><tbody>`;
+    rows.forEach(r=>{const c=r.diff>=0?'var-up arrow-up':'var-down arrow-down';t+=`<tr><td><strong>${r.mkt}</strong></td><td>${fmtPct(r.cOcc)}</td><td>${fmtPct(r.pOcc)}</td><td><span class="${c}">${r.diff>=0?'+':''}${r.diff.toFixed(2)}%</span></td></tr>`;});
+    t+='</tbody></table>';
+    tablesEl.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+
+  setTimeout(()=>{PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartSeg_${prop}`;const ctx=gc(cid);
+    const curD=md(RAW_DATA,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(RAW_DATA,PREV_MONTH).filter(r=>r.property===prop);
+    const cDays=new Set(curD.map(r=>r.date.getDate())).size||1;
+    const pDays=new Set(prevD.map(r=>r.date.getDate())).size||1;
+    const mkts=[...new Set([...curD.map(r=>r.mktGroup),...prevD.map(r=>r.mktGroup)])].filter(Boolean).sort();
+    const rows=mkts.map(m=>{const cN=curD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);const pN=prevD.filter(r=>r.mktGroup===m).reduce((s,r)=>s+r.nights,0);return{mkt:m,diff:(cN/(cfg.rooms*cDays))*100-(pN/(cfg.rooms*pDays))*100};}).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+    CI[cid]=new Chart(ctx,{type:'bar',data:{labels:rows.map(r=>r.mkt),datasets:[{label:'OCC% Diff',data:rows.map(r=>r.diff),backgroundColor:rows.map(r=>r.diff>=0?'#16a34a':'#dc2626'),datalabels:dlOpts(v=>(v>=0?'+':'')+v.toFixed(1)+'%','#333','end','top',7)}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'#eee'},ticks:{font:{size:8}}},y:{ticks:{font:{size:8}}}}}});
+  });},60);
+}
+
+/* ==================================================================
+   SECTION 6: ACCOUNT MANAGER — 3 SIDE-BY-SIDE
+   ================================================================== */
+function renderAccountManagerSection(){
+  const chartsEl=document.getElementById('amChartsRow');chartsEl.innerHTML='';
+  const tablesEl=document.getElementById('amTablesRow');tablesEl.innerHTML='';
+  const amData=RAW_DATA.filter(r=>AM_MKT.includes(r.mktGroup));
+  const mgrGrandTotals={};
+  TRACKED_MGR.forEach(mgr=>{mgrGrandTotals[mgr]=md(amData,CURRENT_MONTH).filter(r=>r.accountManager===mgr).reduce((s,r)=>s+r.nights,0);});
+
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartAM_${prop}`;
+    chartsEl.innerHTML+=`<div class="daily-chart-card"><div class="dc-header ${cfg.cls}">${cfg.name}</div><div class="dc-body"><canvas id="${cid}"></canvas></div></div>`;
+  });
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const curD=md(amData,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(amData,PREV_MONTH).filter(r=>r.property===prop);
+    const rows=TRACKED_MGR.map(mgr=>{
+      const mktB={};AM_MKT.forEach(m=>{mktB[m]=curD.filter(r=>r.accountManager===mgr&&r.mktGroup===m).reduce((s,r)=>s+r.nights,0);});
+      const tC=Object.values(mktB).reduce((s,v)=>s+v,0);
+      const tP=prevD.filter(r=>r.accountManager===mgr).reduce((s,r)=>s+r.nights,0);
+      const share=mgrGrandTotals[mgr]?((tC/mgrGrandTotals[mgr])*100):0;
+      return{mgr,mktB,tC,tP,share};
+    });
+    /* Short name helper for table */
+    const sn=n=>{const p=n.split(' ');return p.length>2?p[0]+' '+p[p.length-1]:n;};
+    let t=`<table><thead><tr><th>Manager</th>${AM_MKT.map(m=>`<th>${m}</th>`).join('')}<th>Total</th><th>Var</th><th>Share</th></tr></thead><tbody>`;
+    rows.forEach(r=>{const d=r.tC-r.tP;const c=d>=0?'var-up arrow-up':'var-down arrow-down';
+      t+=`<tr><td title="${r.mgr}"><strong>${sn(r.mgr)}</strong></td>${AM_MKT.map(m=>`<td>${fmt(r.mktB[m])}</td>`).join('')}<td><strong>${fmt(r.tC)}</strong></td><td><span class="${c}">${d>=0?'+':''}${fmt(d)}</span></td><td><span class="share-badge">${fmtPct(r.share)}</span></td></tr>`;
+    });
+    t+='</tbody></table>';
+    tablesEl.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+
+  setTimeout(()=>{PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartAM_${prop}`;const ctx=gc(cid);
+    const curD=md(amData,CURRENT_MONTH).filter(r=>r.property===prop);
+    const prevD=md(amData,PREV_MONTH).filter(r=>r.property===prop);
+    const rows=TRACKED_MGR.map(mgr=>{
+      const tC=curD.filter(r=>r.accountManager===mgr).reduce((s,r)=>s+r.nights,0);
+      const tP=prevD.filter(r=>r.accountManager===mgr).reduce((s,r)=>s+r.nights,0);
+      return{mgr,tC,tP};
+    });
+    const shortNames=rows.map(r=>{const p=r.mgr.split(' ');return p[0];});
+    CI[cid]=new Chart(ctx,{type:'bar',data:{labels:shortNames,datasets:[
+      {label:CURRENT_MONTH,data:rows.map(r=>r.tC),backgroundColor:cfg.color,datalabels:dlOpts(v=>fmt(v),'#fff','center','center',8)},
+      {label:PREV_MONTH,data:rows.map(r=>r.tP),backgroundColor:cfg.colorLight,borderColor:cfg.color,borderWidth:1,datalabels:dlOpts(v=>fmt(v),'#444','end','top',7)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:9,family:'Roboto'},boxWidth:10}}},scales:{y:{beginAtZero:true,ticks:{font:{size:8}}},x:{ticks:{font:{size:8}}}}}});
+  });},60);
+}
+
+/* ==================================================================
+   SECTION 7: LEI & LEGRP — 3 SIDE-BY-SIDE
+   ================================================================== */
+function renderLeiSection(){
+  const grps=['LEI','LEGRP'];
+  const chartsEl=document.getElementById('leiChartsRow');chartsEl.innerHTML='';
+  const tablesEl=document.getElementById('leiTablesRow');tablesEl.innerHTML='';
+  const leiData=RAW_DATA.filter(r=>grps.includes(r.mktGroup));
+  const curAll=md(leiData,CURRENT_MONTH),prevAll=md(leiData,PREV_MONTH);
+  const grandCurTotal=curAll.reduce((s,r)=>s+r.nights,0);
+
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartLei_${prop}`;
+    chartsEl.innerHTML+=`<div class="daily-chart-card"><div class="dc-header ${cfg.cls}">${cfg.name}</div><div class="dc-body"><canvas id="${cid}"></canvas></div></div>`;
+  });
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    const grpRows=grps.map(g=>{
+      const cN=curAll.filter(r=>r.mktGroup===g&&r.property===prop).reduce((s,r)=>s+r.nights,0);
+      const pN=prevAll.filter(r=>r.mktGroup===g&&r.property===prop).reduce((s,r)=>s+r.nights,0);
+      return{g,cN,pN,diff:cN-pN};
+    });
+    const tC=grpRows.reduce((s,r)=>s+r.cN,0),tP=grpRows.reduce((s,r)=>s+r.pN,0),tD=tC-tP;
+    const share=grandCurTotal?(tC/grandCurTotal*100):0;
+    let t=`<table><thead><tr><th>MKT</th><th>${CURRENT_MONTH}</th><th>${PREV_MONTH}</th><th>Var</th></tr></thead><tbody>`;
+    grpRows.forEach(r=>{const c=r.diff>=0?'var-up arrow-up':'var-down arrow-down';t+=`<tr><td><strong>${r.g}</strong></td><td>${fmt(r.cN)}</td><td>${fmt(r.pN)}</td><td><span class="${c}">${r.diff>=0?'+':''}${fmt(r.diff)}</span></td></tr>`;});
+    const tc=tD>=0?'var-up arrow-up':'var-down arrow-down';
+    t+=`<tr class="total-row"><td>Total</td><td>${fmt(tC)}</td><td>${fmt(tP)}</td><td><span class="${tc}">${tD>=0?'+':''}${fmt(tD)}</span></td></tr>`;
+    t+=`<tr><td colspan="3" style="text-align:right;font-size:.68rem;color:var(--text-muted)">Share of Total</td><td><span class="share-badge">${fmtPct(share)}</span></td></tr>`;
+    t+='</tbody></table>';
+    tablesEl.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+
+  setTimeout(()=>{PROPS.forEach(prop=>{
+    const cfg=PC[prop];const cid=`chartLei_${prop}`;const ctx=gc(cid);
+    const grpRows=grps.map(g=>({g,cN:curAll.filter(r=>r.mktGroup===g&&r.property===prop).reduce((s,r)=>s+r.nights,0),pN:prevAll.filter(r=>r.mktGroup===g&&r.property===prop).reduce((s,r)=>s+r.nights,0)}));
+    CI[cid]=new Chart(ctx,{type:'bar',data:{labels:grps,datasets:[
+      {label:CURRENT_MONTH,data:grpRows.map(r=>r.cN),backgroundColor:cfg.color,datalabels:dlOpts(v=>fmt(v),'#fff','center','center',10)},
+      {label:PREV_MONTH,data:grpRows.map(r=>r.pN),backgroundColor:cfg.colorLight,borderColor:cfg.color,borderWidth:1,datalabels:dlOpts(v=>fmt(v),'#444','end','top',9)}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:9,family:'Roboto'},boxWidth:10}}},scales:{y:{beginAtZero:true,ticks:{font:{size:9}}},x:{ticks:{font:{size:10}}}}}});
+  });},60);
+}
+
+/* ==================================================================
+   SECTION 8: TOP 10 ACCOUNTS — 3 SIDE-BY-SIDE
+   ================================================================== */
+function renderTop10(){
+  const mF=document.getElementById('top10Month').value;
+  const mkF=document.getElementById('top10Mkt').value;
+  const mgF=document.getElementById('top10AccMgr').value;
+  const container=document.getElementById('top10Row');container.innerHTML='';
+
+  const otherMonth=mF===CURRENT_MONTH?PREV_MONTH:CURRENT_MONTH;
+  const prevAll=RAW_DATA.filter(r=>r.period===otherMonth&&TOP10_MKT.includes(r.mktGroup));
+
+  PROPS.forEach(prop=>{
+    const cfg=PC[prop];
+    let data=RAW_DATA.filter(r=>r.period===mF&&TOP10_MKT.includes(r.mktGroup)&&r.property===prop);
+    if(mkF!=='All')data=data.filter(r=>r.mktGroup===mkF);
+    if(mgF!=='All')data=data.filter(r=>r.accountManager===mgF);
+
+    const agg={};
+    data.forEach(r=>{const k=`${r.account}|||${r.accountManager}|||${r.mktGroup}`;if(!agg[k])agg[k]={account:r.account,mgr:r.accountManager,mkt:r.mktGroup,nights:0};agg[k].nights+=r.nights;});
+    const sorted=Object.values(agg).sort((a,b)=>b.nights-a.nights).slice(0,10);
+    const grandTotal=sorted.reduce((s,r)=>s+r.nights,0);
+
+    let t=`<table><thead><tr><th>#</th><th>Account</th><th>Mgr</th><th>MKT</th><th>Nts</th><th>Var</th><th>%</th></tr></thead><tbody>`;
+    sorted.forEach((r,i)=>{
+      const pN=prevAll.filter(x=>x.account===r.account&&x.property===prop&&x.mktGroup===r.mkt).reduce((s,x)=>s+x.nights,0);
+      const diff=r.nights-pN;const c=diff>=0?'var-up arrow-up':'var-down arrow-down';
+      const share=grandTotal?(r.nights/grandTotal*100):0;
+      /* Short manager name */
+      const sm=r.mgr?r.mgr.split(' ')[0]:'—';
+      t+=`<tr><td>${i+1}</td><td title="${r.account}"><strong>${(r.account||'—').substring(0,22)}</strong></td><td title="${r.mgr}">${sm}</td><td>${r.mkt}</td><td>${fmt(r.nights)}</td><td><span class="${c}">${diff>=0?'+':''}${fmt(diff)}</span></td><td><span class="share-badge">${fmtPct(share)}</span></td></tr>`;
+    });
+    if(!sorted.length)t+='<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text-muted)">No data</td></tr>';
+    t+='</tbody></table>';
+    container.innerHTML+=`<div class="daily-table-card"><div class="dt-header ${cfg.cls}">${cfg.name}</div><div class="dt-body">${t}</div></div>`;
+  });
+}
+
+/* ==================================================================
+   PDF EXPORT
+   ================================================================== */
+function exportPDF(){
+  showLoading(true);
+  const w=document.getElementById('dashboardWrapper');
+  w.classList.add('pdf-mode');
+  document.querySelectorAll('.tab-content').forEach(c=>c.style.display='block');
+  const opt={margin:[10,8,10,8],filename:`Flora_Hotels_Dashboard_${CURRENT_MONTH}_vs_${PREV_MONTH}.pdf`,image:{type:'jpeg',quality:.95},html2canvas:{scale:2,useCORS:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['avoid-all','css','legacy']}};
+  html2pdf().set(opt).from(w).save().then(()=>{
+    w.classList.remove('pdf-mode');document.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
+    document.querySelector('.tab-btn.active').click();showLoading(false);
+  }).catch(err=>{console.error(err);w.classList.remove('pdf-mode');document.querySelectorAll('.tab-content').forEach(c=>c.style.display='');showLoading(false);alert('PDF export failed.');});
+}
+</script>
+</body>
+</html>
