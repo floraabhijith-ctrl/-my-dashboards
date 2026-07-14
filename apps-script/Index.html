@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div id="global-loader"><div class="spinner"></div></div>
+  <div id="toast-stack"></div>
+
+  <button id="menu-toggle">&#9776;</button>
+
+  <div id="app-shell">
+    <nav id="sidebar">
+      <div class="brand"><span class="dot"></span> Content Tracker</div>
+      <ul id="nav-list">
+        <li><div class="nav-link active" data-view="dashboard"><span class="nav-icon">&#128202;</span> Dashboard</div></li>
+        <li><div class="nav-link" data-view="tracker"><span class="nav-icon">&#128203;</span> Content Tracker</div></li>
+        <li><div class="nav-link" data-view="kanban"><span class="nav-icon">&#128209;</span> Kanban Board</div></li>
+        <li><div class="nav-link" data-view="calendar"><span class="nav-icon">&#128197;</span> Calendar</div></li>
+        <li><div class="nav-link" data-view="newrequest"><span class="nav-icon">&#10133;</span> New Request</div></li>
+        <li><div class="nav-link" data-view="approvals"><span class="nav-icon">&#9989;</span> Approval Queue</div></li>
+        <li><div class="nav-link" data-view="reports"><span class="nav-icon">&#128200;</span> Reports</div></li>
+        <li><div class="nav-link" data-view="archive"><span class="nav-icon">&#128451;</span> Archived Records</div></li>
+        <li><div class="nav-link" data-view="team"><span class="nav-icon">&#128101;</span> Team Management</div></li>
+        <li><div class="nav-link" data-view="settings"><span class="nav-icon">&#9881;</span> Settings</div></li>
+      </ul>
+      <div id="sidebar-footer">Asia/Dubai &middot; v1.0</div>
+    </nav>
+
+    <div id="main">
+      <div id="topbar">
+        <h1 id="topbar-title">Dashboard</h1>
+        <div class="user-chip">
+          <span id="user-role-badge" class="role-badge">...</span>
+          <div class="avatar" id="user-avatar">?</div>
+          <span id="user-name-label">Loading...</span>
+        </div>
+      </div>
+
+      <div id="view-container">
+
+        <!-- DASHBOARD -->
+        <section class="view active" id="view-dashboard">
+          <div class="view-header">
+            <h2>Delivery Overview</h2>
+            <div class="actions"><button class="btn" id="refresh-dashboard-btn">&#8635; Refresh</button></div>
+          </div>
+          <div class="kpi-grid" id="kpi-grid"></div>
+          <div class="chart-grid" id="chart-grid"></div>
+        </section>
+
+        <!-- TRACKER -->
+        <section class="view" id="view-tracker">
+          <div class="view-header">
+            <h2>Content Tracker</h2>
+            <div class="actions">
+              <button class="btn btn-primary" data-goto="newrequest">+ New Request</button>
+            </div>
+          </div>
+          <div class="filter-bar" id="tracker-filter-bar"></div>
+          <div class="table-wrap"><table class="data-table" id="tracker-table">
+            <thead></thead><tbody></tbody>
+          </table></div>
+        </section>
+
+        <!-- KANBAN -->
+        <section class="view" id="view-kanban">
+          <div class="view-header">
+            <h2>Kanban Board</h2>
+            <div class="actions"><span class="muted" style="font-size:12px;">Drag a card to change its status</span></div>
+          </div>
+          <div id="kanban-board"></div>
+        </section>
+
+        <!-- CALENDAR -->
+        <section class="view" id="view-calendar">
+          <div class="view-header"><h2>Delivery Calendar</h2></div>
+          <div class="calendar-nav">
+            <button class="btn btn-sm" id="cal-prev">&larr; Prev</button>
+            <strong id="cal-month-label">Month</strong>
+            <button class="btn btn-sm" id="cal-next">Next &rarr;</button>
+            <button class="btn btn-sm" id="cal-today">Today</button>
+          </div>
+          <div class="calendar-grid" id="calendar-grid"></div>
+        </section>
+
+        <!-- NEW REQUEST -->
+        <section class="view" id="view-newrequest">
+          <div class="view-header"><h2>New Content Request</h2></div>
+          <div class="panel">
+            <form id="new-request-form">
+              <div class="form-grid" id="new-request-fields"></div>
+              <div class="form-actions">
+                <button type="button" class="btn" data-goto="tracker">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="new-request-submit">Submit Request</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- APPROVAL QUEUE -->
+        <section class="view" id="view-approvals">
+          <div class="view-header"><h2>Approval Queue</h2></div>
+          <div class="table-wrap"><table class="data-table" id="approvals-table">
+            <thead><tr><th>Request ID</th><th>Title</th><th>Assignee</th><th>Draft</th><th>Due</th><th>Priority</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </section>
+
+        <!-- REPORTS -->
+        <section class="view" id="view-reports">
+          <div class="view-header">
+            <h2>Delivery Performance Reports</h2>
+            <div class="actions">
+              <input type="date" id="report-from" class="btn" style="font-weight:400;">
+              <input type="date" id="report-to" class="btn" style="font-weight:400;">
+              <button class="btn btn-primary" id="report-run-btn">Run Report</button>
+            </div>
+          </div>
+          <div id="reports-container"></div>
+        </section>
+
+        <!-- ARCHIVE -->
+        <section class="view" id="view-archive">
+          <div class="view-header"><h2>Archived Records</h2></div>
+          <div class="filter-bar" id="archive-filter-bar"></div>
+          <div class="table-wrap"><table class="data-table" id="archive-table">
+            <thead></thead><tbody></tbody>
+          </table></div>
+        </section>
+
+        <!-- TEAM MANAGEMENT -->
+        <section class="view" id="view-team">
+          <div class="view-header">
+            <h2>Team Management</h2>
+            <div class="actions"><button class="btn btn-primary" id="add-team-member-btn">+ Add Member</button></div>
+          </div>
+          <div class="table-wrap"><table class="data-table" id="team-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>SM Manager</th><th>Dept Head</th><th>Active</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="view" id="view-settings">
+          <div class="view-header"><h2>Settings</h2></div>
+          <div class="panel" id="settings-panel"></div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- REQUEST DETAIL MODAL -->
+  <div class="modal-overlay" id="detail-modal">
+    <div class="modal-box wide">
+      <div class="modal-header">
+        <h3 id="detail-modal-title">Request Detail</h3>
+        <button class="modal-close" data-close="detail-modal">&times;</button>
+      </div>
+      <div class="modal-body" id="detail-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ACTION MODAL (progress / draft / approval / publish / hold / cancel) -->
+  <div class="modal-overlay" id="action-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="action-modal-title">Update</h3>
+        <button class="modal-close" data-close="action-modal">&times;</button>
+      </div>
+      <div class="modal-body" id="action-modal-body"></div>
+      <div class="modal-footer" id="action-modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- TEAM MEMBER MODAL -->
+  <div class="modal-overlay" id="team-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Team Member</h3>
+        <button class="modal-close" data-close="team-modal">&times;</button>
+      </div>
+      <div class="modal-body" id="team-modal-body"></div>
+      <div class="modal-footer" id="team-modal-footer"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

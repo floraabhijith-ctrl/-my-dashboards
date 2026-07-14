@@ -1,0 +1,1106 @@
+<script>
+/* =========================================================================
+ * FRONTEND APPLICATION LOGIC
+ * ========================================================================= */
+
+var STATE = {
+  user: null,
+  options: null,
+  settings: null,
+  webAppUrl: '',
+  trackerRows: [],
+  archiveRows: [],
+  approvalRows: [],
+  teamRows: [],
+  currentView: 'dashboard',
+  calendarDate: new Date(),
+  detailRequestId: null,
+  chartsReady: false
+};
+
+var VIEW_TITLES = {
+  dashboard: 'Dashboard', tracker: 'Content Tracker', kanban: 'Kanban Board', calendar: 'Delivery Calendar',
+  newrequest: 'New Content Request', approvals: 'Approval Queue', reports: 'Delivery Performance Reports',
+  archive: 'Archived Records', team: 'Team Management', settings: 'Settings'
+};
+
+var NAV_ROLE_MAP = {
+  dashboard: ['Administrator', 'Requester', 'Social Media Team', 'Approver', 'Viewer'],
+  tracker: ['Administrator', 'Requester', 'Social Media Team', 'Approver', 'Viewer'],
+  kanban: ['Administrator', 'Requester', 'Social Media Team', 'Approver', 'Viewer'],
+  calendar: ['Administrator', 'Requester', 'Social Media Team', 'Approver', 'Viewer'],
+  newrequest: ['Administrator', 'Requester'],
+  approvals: ['Administrator', 'Requester', 'Approver'],
+  reports: ['Administrator', 'Requester', 'Approver'],
+  archive: ['Administrator', 'Requester', 'Social Media Team', 'Approver', 'Viewer'],
+  team: ['Administrator'],
+  settings: ['Administrator']
+};
+
+/* ---------------------------------------------------------------------
+ * SERVER BRIDGE
+ * ------------------------------------------------------------------- */
+function callServer(fnName) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(function (err) { reject(err); })[fnName].apply(null, args);
+  });
+}
+
+function withLoader(promise) {
+  showLoader(true);
+  return promise.finally(function () { showLoader(false); });
+}
+
+function showLoader(on) {
+  document.getElementById('global-loader').classList.toggle('active', !!on);
+}
+
+function toast(message, type) {
+  var stack = document.getElementById('toast-stack');
+  var el = document.createElement('div');
+  el.className = 'toast ' + (type || 'info');
+  el.textContent = message;
+  stack.appendChild(el);
+  setTimeout(function () { el.remove(); }, 4200);
+}
+
+function friendlyError(err) {
+  var msg = (err && err.message) ? err.message : String(err);
+  toast(msg, 'error');
+}
+
+/* ---------------------------------------------------------------------
+ * INIT
+ * ------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', function () {
+  bindNav();
+  bindModals();
+  bindGlobalActions();
+  google.charts.load('current', { packages: ['corechart'] });
+
+  withLoader(callServer('getBootstrapData')).then(function (data) {
+    STATE.user = data.user;
+    STATE.options = data.options;
+    STATE.settings = data.settings;
+    STATE.webAppUrl = data.webAppUrl;
+    applyUserChrome();
+    applyRoleVisibility();
+    google.charts.setOnLoadCallback(function () {
+      STATE.chartsReady = true;
+      loadDashboard();
+    });
+  }).catch(friendlyError);
+});
+
+function applyUserChrome() {
+  document.getElementById('user-name-label').textContent = STATE.user.name;
+  document.getElementById('user-role-badge').textContent = STATE.user.role;
+  document.getElementById('user-avatar').textContent = (STATE.user.name || '?').substring(0, 1).toUpperCase();
+}
+
+function applyRoleVisibility() {
+  var role = STATE.user.role;
+  document.querySelectorAll('.nav-link').forEach(function (link) {
+    var view = link.dataset.view;
+    var allowed = NAV_ROLE_MAP[view] || [];
+    link.style.display = allowed.indexOf(role) === -1 ? 'none' : '';
+  });
+}
+
+function roleCan(roles) {
+  return roles.indexOf(STATE.user.role) !== -1;
+}
+
+/* ---------------------------------------------------------------------
+ * NAVIGATION
+ * ------------------------------------------------------------------- */
+var VIEW_LOADERS = {
+  dashboard: loadDashboard,
+  tracker: loadTracker,
+  kanban: loadKanban,
+  calendar: loadCalendar,
+  newrequest: initNewRequestForm,
+  approvals: loadApprovals,
+  reports: function () { document.getElementById('reports-container').innerHTML = '<div class="empty-state">Choose a date range and click "Run Report".</div>'; },
+  archive: loadArchive,
+  team: loadTeam,
+  settings: loadSettings
+};
+
+function bindNav() {
+  document.querySelectorAll('.nav-link').forEach(function (link) {
+    link.addEventListener('click', function () { goToView(link.dataset.view); });
+  });
+  document.getElementById('menu-toggle').addEventListener('click', function () {
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+  document.addEventListener('click', function (e) {
+    var gotoEl = e.target.closest('[data-goto]');
+    if (gotoEl) goToView(gotoEl.dataset.goto);
+  });
+}
+
+function goToView(view) {
+  STATE.currentView = view;
+  document.querySelectorAll('.nav-link').forEach(function (l) { l.classList.toggle('active', l.dataset.view === view); });
+  document.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'view-' + view); });
+  document.getElementById('topbar-title').textContent = VIEW_TITLES[view] || '';
+  document.getElementById('sidebar').classList.remove('open');
+  if (VIEW_LOADERS[view]) VIEW_LOADERS[view]();
+}
+
+/* ---------------------------------------------------------------------
+ * MODALS
+ * ------------------------------------------------------------------- */
+function bindModals() {
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () { closeModal(btn.dataset.close); });
+  });
+  document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) closeModal(overlay.id);
+    });
+  });
+}
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function bindGlobalActions() {
+  document.getElementById('refresh-dashboard-btn').addEventListener('click', loadDashboard);
+  document.getElementById('cal-prev').addEventListener('click', function () { shiftCalendar(-1); });
+  document.getElementById('cal-next').addEventListener('click', function () { shiftCalendar(1); });
+  document.getElementById('cal-today').addEventListener('click', function () { STATE.calendarDate = new Date(); renderCalendar(); });
+  document.getElementById('report-run-btn').addEventListener('click', runReport);
+  document.getElementById('add-team-member-btn').addEventListener('click', function () { openTeamModal(null); });
+  document.getElementById('new-request-form').addEventListener('submit', submitNewRequest);
+}
+
+/* ---------------------------------------------------------------------
+ * FORMAT / BADGE HELPERS
+ * ------------------------------------------------------------------- */
+function fmtDate(value) {
+  if (!value) return '—';
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtDateTime(value) {
+  if (!value) return '—';
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' +
+    d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+function esc(s) {
+  var div = document.createElement('div');
+  div.textContent = s === null || s === undefined ? '' : String(s);
+  return div.innerHTML;
+}
+
+var STATUS_TONE = {
+  'Brief Pending': 'grey', 'Assigned': 'blue', 'In Progress': 'blue', 'Draft Submitted': 'blue',
+  'Awaiting Internal Review': 'amber', 'Revision Required': 'amber', 'Awaiting Final Approval': 'amber',
+  'Approved': 'green', 'Scheduled': 'blue', 'Published': 'green', 'On Hold': 'grey', 'Cancelled': 'grey'
+};
+var STATUS_ICON = {
+  'Brief Pending': '○', 'Assigned': '→', 'In Progress': '◐', 'Draft Submitted': '↑',
+  'Awaiting Internal Review': '⏳', 'Revision Required': '↻', 'Awaiting Final Approval': '⏳',
+  'Approved': '✓', 'Scheduled': '⏰', 'Published': '✔', 'On Hold': '‖', 'Cancelled': '✕'
+};
+var SLA_TONE = { 'On Track': 'green', 'Due Soon': 'amber', 'Overdue': 'red', 'On Time': 'green', 'Delayed': 'red', 'N/A': 'grey', 'Completed': 'green' };
+
+function statusBadge(status) {
+  var tone = STATUS_TONE[status] || 'grey';
+  var icon = STATUS_ICON[status] || '';
+  return '<span class="badge badge-' + tone + '">' + icon + ' ' + esc(status) + '</span>';
+}
+function slaBadge(sla) {
+  var tone = SLA_TONE[sla] || 'grey';
+  return '<span class="badge badge-' + tone + '">' + esc(sla) + '</span>';
+}
+function priorityBadge(priority) {
+  return '<span class="priority-badge priority-' + esc(priority) + '">' + esc(priority) + '</span>';
+}
+function progressBar(pct) {
+  pct = Number(pct) || 0;
+  var cls = pct >= 100 ? 'progress-fill complete' : 'progress-fill';
+  return '<div class="progress-track"><div class="' + cls + '" style="width:' + pct + '%;"></div></div>' +
+    '<div class="progress-label">' + pct + '%</div>';
+}
+function dueLabel(record) {
+  var due = record['Revised Due Date'] || record['Original Due Date'];
+  var revisedTag = record['Revised Due Date'] ? ' <span class="muted">(revised)</span>' : '';
+  return fmtDate(due) + revisedTag;
+}
+
+/* ---------------------------------------------------------------------
+ * DASHBOARD
+ * ------------------------------------------------------------------- */
+function loadDashboard() {
+  withLoader(callServer('getDashboardData')).then(renderDashboard).catch(friendlyError);
+}
+
+function renderDashboard(data) {
+  var kpis = data.kpis;
+  var cards = [
+    { label: 'Active Requests', value: kpis.active, tone: 'blue', icon: '\u{1F4E5}' },
+    { label: 'Due Today', value: kpis.dueToday, tone: 'amber', icon: '\u{1F4C5}' },
+    { label: 'Due Next 7 Days', value: kpis.dueSoon, tone: 'amber', icon: '\u{1F553}' },
+    { label: 'Overdue', value: kpis.overdue, tone: 'red', icon: '\u{26A0}' },
+    { label: 'Critical Overdue', value: kpis.criticalOverdue, tone: 'red', icon: '\u{1F525}' },
+    { label: 'Awaiting Approval', value: kpis.awaitingApproval, tone: 'amber', icon: '\u{2705}' },
+    { label: 'Scheduled', value: kpis.scheduled, tone: 'blue', icon: '\u{23F0}' },
+    { label: 'Published This Month', value: kpis.publishedThisMonth, tone: 'green', icon: '\u{1F4E3}' },
+    { label: 'No Update 48h+', value: kpis.staleUpdates, tone: 'grey', icon: '\u{1F4A4}' },
+    { label: 'On-Time Delivery', value: kpis.onTimePct + '%', tone: kpis.onTimePct >= 80 ? 'green' : (kpis.onTimePct >= 50 ? 'amber' : 'red'), icon: '\u{1F3AF}' }
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(function (c) {
+    return '<div class="kpi-card tone-' + c.tone + '"><span class="kpi-icon">' + c.icon + '</span>' +
+      '<div class="kpi-label">' + c.label + '</div><div class="kpi-value">' + c.value + '</div></div>';
+  }).join('');
+
+  var chartDefs = [
+    { id: 'chart-pending', title: 'Pending Work by Team Member', type: 'BarChart', cols: ['Member', 'Pending'], rows: data.charts.pendingByAssignee },
+    { id: 'chart-status', title: 'Requests by Status', type: 'PieChart', cols: ['Status', 'Count'], rows: data.charts.byStatus },
+    { id: 'chart-property', title: 'Requests by Property', type: 'PieChart', cols: ['Property', 'Count'], rows: data.charts.byProperty },
+    { id: 'chart-platform', title: 'Requests by Platform', type: 'PieChart', cols: ['Platform', 'Count'], rows: data.charts.byPlatform },
+    { id: 'chart-monthly', title: 'Monthly Requests vs Published', type: 'ColumnChart', cols: ['Month', 'Requested', 'Published'], rows: data.charts.monthly },
+    { id: 'chart-ontime', title: 'On-Time vs Delayed Delivery', type: 'PieChart', cols: ['Outcome', 'Count'], rows: data.charts.onTimeVsDelayed },
+    { id: 'chart-delay', title: 'Average Delay by Content Type (days)', type: 'ColumnChart', cols: ['Content Type', 'Avg Delay'], rows: data.charts.avgDelayByType }
+  ];
+
+  document.getElementById('chart-grid').innerHTML = chartDefs.map(function (c) {
+    return '<div class="chart-card"><h3>' + c.title + '</h3><div class="chart-canvas" id="' + c.id + '"></div></div>';
+  }).join('');
+
+  if (!STATE.chartsReady) return;
+  chartDefs.forEach(drawChart);
+}
+
+function drawChart(def) {
+  var el = document.getElementById(def.id);
+  if (!def.rows || def.rows.length === 0) {
+    el.innerHTML = '<div class="empty-state">No data yet</div>';
+    return;
+  }
+  var dataTable = google.visualization.arrayToDataTable([def.cols].concat(def.rows));
+  var options = {
+    legend: def.type === 'PieChart' ? { position: 'right', textStyle: { fontSize: 11 } } : { position: 'none' },
+    chartArea: { width: '88%', height: '75%' },
+    colors: ['#1a3c6e', '#1e8e3e', '#b06d00', '#c5221f', '#1967d2', '#5f6368', '#8ab4f8'],
+    fontName: 'Segoe UI', fontSize: 11, isStacked: def.id === 'chart-monthly' ? false : undefined
+  };
+  var chart = new google.visualization[def.type](el);
+  chart.draw(dataTable, options);
+}
+
+/* ---------------------------------------------------------------------
+ * TRACKER
+ * ------------------------------------------------------------------- */
+var TRACKER_FILTER_STATE = {};
+
+function buildFilterBar(containerId, includeAll) {
+  var o = STATE.options;
+  function opts(list) { return list.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join(''); }
+  var html = '';
+  html += '<input type="text" class="search-box" data-filter="search" placeholder="Search ID, title, campaign, requester, assignee">';
+  html += '<select data-filter="property"><option value="">All Properties</option>' + opts(o.properties) + '</select>';
+  html += '<select data-filter="campaign"><option value="">All Campaigns</option>' + opts(o.campaigns) + '</select>';
+  html += '<select data-filter="platform"><option value="">All Platforms</option>' + opts(o.platforms) + '</select>';
+  html += '<select data-filter="contentType"><option value="">All Content Types</option>' + opts(o.contentTypes) + '</select>';
+  html += '<select data-filter="assignedTo"><option value="">All Assignees</option>' + opts(o.assignees.map(function (a) { return a.name; })) + '</select>';
+  html += '<select data-filter="priority"><option value="">All Priorities</option>' + opts(o.priorities) + '</select>';
+  if (includeAll) {
+    html += '<select data-filter="status"><option value="">All Statuses</option>' + opts(o.statuses) + '</select>';
+    html += '<select data-filter="approvalStatus"><option value="">All Approval</option>' + opts(o.approvalStatuses) + '</select>';
+  }
+  html += '<input type="date" data-filter="dueFrom" title="Due from">';
+  html += '<input type="date" data-filter="dueTo" title="Due to">';
+  if (includeAll) {
+    html += '<label class="chk"><input type="checkbox" data-filter="overdueOnly"> Overdue only</label>';
+    html += '<label class="chk"><input type="checkbox" data-filter="noRecentUpdate"> No update 48h+</label>';
+  }
+  html += '<button class="btn btn-sm" id="' + containerId + '-clear">Clear</button>';
+  document.getElementById(containerId).innerHTML = html;
+
+  var el = document.getElementById(containerId);
+  el.querySelectorAll('[data-filter]').forEach(function (input) {
+    var evt = input.type === 'checkbox' || input.tagName === 'SELECT' ? 'change' : 'input';
+    input.addEventListener(evt, debounce(function () { onFilterChange(containerId); }, 250));
+  });
+  document.getElementById(containerId + '-clear').addEventListener('click', function () {
+    el.querySelectorAll('[data-filter]').forEach(function (input) {
+      if (input.type === 'checkbox') input.checked = false; else input.value = '';
+    });
+    onFilterChange(containerId);
+  });
+}
+
+function debounce(fn, ms) {
+  var t;
+  return function () { clearTimeout(t); var args = arguments; t = setTimeout(function () { fn.apply(null, args); }, ms); };
+}
+
+function readFilters(containerId) {
+  var filters = {};
+  document.querySelectorAll('#' + containerId + ' [data-filter]').forEach(function (input) {
+    var key = input.dataset.filter;
+    if (input.type === 'checkbox') { if (input.checked) filters[key] = true; }
+    else if (input.value) filters[key] = input.value;
+  });
+  return filters;
+}
+
+function onFilterChange(containerId) {
+  if (containerId === 'tracker-filter-bar') loadTracker();
+  if (containerId === 'archive-filter-bar') loadArchive();
+}
+
+var TRACKER_COLUMNS = [
+  'Request ID', 'Content Title', 'Property', 'Platform', 'Assigned To', 'Priority', 'Status', 'Progress', 'Due Date', 'SLA', 'Actions'
+];
+
+function loadTracker() {
+  if (!document.getElementById('tracker-filter-bar').children.length) buildFilterBar('tracker-filter-bar', true);
+  var filters = readFilters('tracker-filter-bar');
+  withLoader(callServer('getTrackerData', filters)).then(function (rows) {
+    STATE.trackerRows = rows;
+    renderTrackerTable(rows);
+  }).catch(friendlyError);
+}
+
+function renderTrackerTable(rows) {
+  var table = document.getElementById('tracker-table');
+  table.querySelector('thead').innerHTML = '<tr>' + TRACKER_COLUMNS.map(function (c) { return '<th>' + c + '</th>'; }).join('') + '</tr>';
+  if (rows.length === 0) {
+    table.querySelector('tbody').innerHTML = '<tr><td colspan="' + TRACKER_COLUMNS.length + '"><div class="empty-state">No requests match these filters.</div></td></tr>';
+    return;
+  }
+  table.querySelector('tbody').innerHTML = rows.map(function (r) {
+    return '<tr>' +
+      '<td><button class="link-btn" data-open="' + esc(r['Request ID']) + '">' + esc(r['Request ID']) + '</button></td>' +
+      '<td>' + esc(r['Content Title']) + '</td>' +
+      '<td>' + esc(r['Property']) + '</td>' +
+      '<td>' + esc(r['Platform']) + '</td>' +
+      '<td>' + esc(r['Assigned To'] || '—') + '</td>' +
+      '<td>' + priorityBadge(r['Priority']) + '</td>' +
+      '<td>' + statusBadge(r['Status']) + '</td>' +
+      '<td>' + progressBar(r['Progress Percentage']) + '</td>' +
+      '<td>' + dueLabel(r) + '</td>' +
+      '<td>' + slaBadge(r['SLA Status']) + '</td>' +
+      '<td class="row-actions">' +
+        '<button class="btn btn-sm" data-open="' + esc(r['Request ID']) + '">Open</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  table.querySelectorAll('[data-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () { openDetailModal(btn.dataset.open); });
+  });
+}
+
+/* ---------------------------------------------------------------------
+ * KANBAN
+ * ------------------------------------------------------------------- */
+var KANBAN_STATUSES = ['Brief Pending', 'Assigned', 'In Progress', 'Draft Submitted', 'Awaiting Internal Review',
+  'Revision Required', 'Awaiting Final Approval', 'Approved', 'Scheduled', 'Published'];
+
+function loadKanban() {
+  withLoader(callServer('getTrackerData', {})).then(function (rows) {
+    STATE.trackerRows = rows;
+    renderKanban(rows);
+  }).catch(friendlyError);
+}
+
+function renderKanban(rows) {
+  var board = document.getElementById('kanban-board');
+  board.innerHTML = KANBAN_STATUSES.map(function (status) {
+    var items = rows.filter(function (r) { return r['Status'] === status; });
+    var tone = STATUS_TONE[status] || 'grey';
+    return '<div class="kanban-col" data-status="' + esc(status) + '">' +
+      '<div class="kanban-col-header"><span>' + esc(status) + '</span><span class="badge badge-' + tone + '">' + items.length + '</span></div>' +
+      '<div class="kanban-col-body">' + items.map(kanbanCardHtml).join('') + '</div>' +
+    '</div>';
+  }).join('');
+
+  board.querySelectorAll('.kanban-card').forEach(function (card) {
+    card.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', card.dataset.id); });
+    card.addEventListener('click', function () { openDetailModal(card.dataset.id); });
+  });
+  board.querySelectorAll('.kanban-col').forEach(function (col) {
+    col.addEventListener('dragover', function (e) { e.preventDefault(); col.classList.add('drop-target'); });
+    col.addEventListener('dragleave', function () { col.classList.remove('drop-target'); });
+    col.addEventListener('drop', function (e) {
+      e.preventDefault();
+      col.classList.remove('drop-target');
+      var requestId = e.dataTransfer.getData('text/plain');
+      var record = STATE.trackerRows.filter(function (r) { return r['Request ID'] === requestId; })[0];
+      if (record && record['Status'] !== col.dataset.status) {
+        openActionModal('progress', requestId, record, { presetStatus: col.dataset.status });
+      }
+    });
+  });
+}
+
+function kanbanCardHtml(r) {
+  return '<div class="kanban-card" draggable="true" data-id="' + esc(r['Request ID']) + '">' +
+    '<div class="kc-title">' + esc(r['Content Title']) + '</div>' +
+    '<div class="kc-meta">' + esc(r['Request ID']) + ' &middot; ' + esc(r['Assigned To'] || 'Unassigned') + '</div>' +
+    priorityBadge(r['Priority']) + ' ' + slaBadge(r['SLA Status']) +
+    '<div style="margin-top:6px;">' + progressBar(r['Progress Percentage']) + '</div>' +
+  '</div>';
+}
+
+/* ---------------------------------------------------------------------
+ * CALENDAR
+ * ------------------------------------------------------------------- */
+function shiftCalendar(delta) {
+  STATE.calendarDate.setMonth(STATE.calendarDate.getMonth() + delta);
+  renderCalendar();
+}
+
+function loadCalendar() {
+  withLoader(callServer('getTrackerData', {})).then(function (rows) {
+    STATE.trackerRows = rows;
+    renderCalendar();
+  }).catch(friendlyError);
+}
+
+function renderCalendar() {
+  var year = STATE.calendarDate.getFullYear();
+  var month = STATE.calendarDate.getMonth();
+  document.getElementById('cal-month-label').textContent = STATE.calendarDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  var byDate = {};
+  STATE.trackerRows.forEach(function (r) {
+    var due = r['Revised Due Date'] || r['Original Due Date'];
+    if (!due) return;
+    var d = new Date(due);
+    var key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    byDate[key] = byDate[key] || [];
+    byDate[key].push(r);
+  });
+
+  var firstOfMonth = new Date(year, month, 1);
+  var startOffset = firstOfMonth.getDay();
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+  var dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  var html = dowLabels.map(function (d) { return '<div class="calendar-dow">' + d + '</div>'; }).join('');
+  for (var i = 0; i < startOffset; i++) html += '<div class="calendar-cell muted"></div>';
+
+  for (var day = 1; day <= daysInMonth; day++) {
+    var key = year + '-' + month + '-' + day;
+    var items = byDate[key] || [];
+    html += '<div class="calendar-cell"><div class="cal-date">' + day + '</div>' +
+      items.slice(0, 4).map(function (r) {
+        var tone = SLA_TONE[r['SLA Status']] || 'grey';
+        return '<span class="calendar-chip badge-' + tone + '" data-open="' + esc(r['Request ID']) + '" title="' + esc(r['Content Title']) + '">' + esc(r['Request ID']) + '</span>';
+      }).join('') +
+      (items.length > 4 ? '<div class="muted" style="font-size:10px;">+' + (items.length - 4) + ' more</div>' : '') +
+      '</div>';
+  }
+  document.getElementById('calendar-grid').innerHTML = html;
+  document.querySelectorAll('#calendar-grid [data-open]').forEach(function (chip) {
+    chip.addEventListener('click', function () { openDetailModal(chip.dataset.open); });
+  });
+}
+
+/* ---------------------------------------------------------------------
+ * NEW REQUEST FORM
+ * ------------------------------------------------------------------- */
+function initNewRequestForm() {
+  var o = STATE.options;
+  function selectOpts(list) { return '<option value="">Select...</option>' + list.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join(''); }
+  var today = new Date().toISOString().substring(0, 10);
+
+  var fields = [
+    { id: 'property', label: 'Property', type: 'select', options: o.properties, required: true },
+    { id: 'campaign', label: 'Campaign', type: 'select', options: o.campaigns, required: true },
+    { id: 'platform', label: 'Platform', type: 'select', options: o.platforms, required: true },
+    { id: 'contentType', label: 'Content Type', type: 'select', options: o.contentTypes, required: true },
+    { id: 'contentTitle', label: 'Content Title', type: 'text', required: true, full: true },
+    { id: 'detailedBrief', label: 'Detailed Brief', type: 'textarea', required: true, full: true },
+    { id: 'requester', label: 'Requester', type: 'text', required: true, value: STATE.user.name },
+    { id: 'requesterEmail', label: 'Requester Email', type: 'email', required: true, value: STATE.user.email },
+    { id: 'assignedTo', label: 'Assigned To', type: 'assignee', options: o.assignees },
+    { id: 'priority', label: 'Priority', type: 'select', options: o.priorities, required: true },
+    { id: 'originalDueDate', label: 'Original Due Date', type: 'date', required: true, min: today },
+    { id: 'referenceLink', label: 'Reference Link', type: 'url' },
+    { id: 'driveLink', label: 'Google Drive Link', type: 'url' },
+    { id: 'canvaLink', label: 'Canva Link', type: 'url' },
+    { id: 'notes', label: 'Notes', type: 'textarea', full: true }
+  ];
+
+  document.getElementById('new-request-fields').innerHTML = fields.map(fieldHtml).join('');
+
+  var assigneeSelect = document.getElementById('field-assignedTo');
+  if (assigneeSelect) {
+    assigneeSelect.addEventListener('change', function () {
+      var match = o.assignees.filter(function (a) { return a.name === assigneeSelect.value; })[0];
+      document.getElementById('field-assigneeEmail-hidden').value = match ? match.email : '';
+    });
+  }
+}
+
+function fieldHtml(f) {
+  var reqMark = f.required ? ' <span class="req">*</span>' : '';
+  var full = f.full ? ' full' : '';
+  var inner = '';
+  if (f.type === 'select') {
+    inner = '<select id="field-' + f.id + '"' + (f.required ? ' required' : '') + '>' +
+      '<option value="">Select...</option>' + f.options.map(function (v) {
+        return '<option value="' + esc(v) + '"' + (f.value === v ? ' selected' : '') + '>' + esc(v) + '</option>';
+      }).join('') + '</select>';
+  } else if (f.type === 'assignee') {
+    inner = '<select id="field-assignedTo">' + '<option value="">Unassigned</option>' + f.options.map(function (a) {
+      return '<option value="' + esc(a.name) + '">' + esc(a.name) + '</option>';
+    }).join('') + '</select><input type="hidden" id="field-assigneeEmail-hidden">';
+  } else if (f.type === 'textarea') {
+    inner = '<textarea id="field-' + f.id + '"' + (f.required ? ' required' : '') + '>' + esc(f.value || '') + '</textarea>';
+  } else {
+    inner = '<input type="' + f.type + '" id="field-' + f.id + '"' + (f.required ? ' required' : '') +
+      (f.min ? ' min="' + f.min + '"' : '') + ' value="' + esc(f.value || '') + '">';
+  }
+  return '<div class="form-field' + full + '"><label>' + f.label + reqMark + '</label>' + inner + '</div>';
+}
+
+function submitNewRequest(e) {
+  e.preventDefault();
+  var form = {
+    property: val('field-property'), campaign: val('field-campaign'), platform: val('field-platform'),
+    contentType: val('field-contentType'), contentTitle: val('field-contentTitle'), detailedBrief: val('field-detailedBrief'),
+    requester: val('field-requester'), requesterEmail: val('field-requesterEmail'),
+    assignedTo: val('field-assignedTo'), assigneeEmail: val('field-assigneeEmail-hidden'),
+    priority: val('field-priority'), originalDueDate: val('field-originalDueDate'),
+    referenceLink: val('field-referenceLink'), driveLink: val('field-driveLink'), canvaLink: val('field-canvaLink'),
+    notes: val('field-notes')
+  };
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var due = new Date(form.originalDueDate);
+  if (due < today) { toast('Due date cannot be earlier than today.', 'error'); return; }
+
+  var btn = document.getElementById('new-request-submit');
+  btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span> Submitting...';
+  withLoader(callServer('createRequest', form)).then(function (res) {
+    toast('Request ' + res.requestId + ' created.', 'success');
+    document.getElementById('new-request-form').reset();
+    goToView('tracker');
+  }).catch(friendlyError).finally(function () {
+    btn.disabled = false; btn.textContent = 'Submit Request';
+  });
+}
+
+function val(id) {
+  var el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+/* ---------------------------------------------------------------------
+ * REQUEST DETAIL MODAL
+ * ------------------------------------------------------------------- */
+function openDetailModal(requestId) {
+  STATE.detailRequestId = requestId;
+  withLoader(callServer('getRequestDetail', requestId)).then(function (detail) {
+    renderDetailModal(detail);
+    openModal('detail-modal');
+  }).catch(friendlyError);
+}
+
+function renderDetailModal(detail) {
+  var r = detail.record;
+  document.getElementById('detail-modal-title').textContent = r['Request ID'] + ' — ' + r['Content Title'];
+
+  var actionsHtml = buildDetailActions(r);
+  var fields = [
+    ['Property', r['Property']], ['Campaign', r['Campaign']], ['Platform', r['Platform']], ['Content Type', r['Content Type']],
+    ['Requester', r['Requester'] + ' (' + r['Requester Email'] + ')'],
+    ['Assigned To', (r['Assigned To'] || '—') + (r['Assignee Email'] ? ' (' + r['Assignee Email'] + ')' : '')],
+    ['Priority', r['Priority']], ['Status', r['Status']], ['Approval Status', r['Approval Status']],
+    ['Request Date', fmtDate(r['Request Date'])], ['Original Due Date', fmtDate(r['Original Due Date'])],
+    ['Revised Due Date', r['Revised Due Date'] ? fmtDate(r['Revised Due Date']) : '—'],
+    ['Progress', r['Progress Percentage'] + '%'], ['SLA Status', r['SLA Status']], ['Days Overdue', r['Days Overdue']],
+    ['Blocker', r['Blocker'] || '—'], ['Next Action', r['Next Action'] || '—'],
+    ['Draft Link', linkOrDash(r['Draft Link'])], ['Published Link', linkOrDash(r['Published Link'])],
+    ['Reference Link', linkOrDash(r['Reference Link'])], ['Drive Link', linkOrDash(r['Drive Link'])], ['Canva Link', linkOrDash(r['Canva Link'])],
+    ['Last Updated By', r['Last Updated By'] + ' on ' + fmtDateTime(r['Last Updated Date'])]
+  ];
+
+  var detailHtml =
+    '<div class="row-actions" style="margin-bottom:16px;">' + actionsHtml + '</div>' +
+    '<div class="tabs">' +
+      '<button class="tab-btn active" data-tab="details">Details</button>' +
+      '<button class="tab-btn" data-tab="timeline">Update Timeline (' + detail.updates.length + ')</button>' +
+      '<button class="tab-btn" data-tab="reminders">Reminder History (' + detail.reminders.length + ')</button>' +
+    '</div>' +
+    '<div class="tab-panel active" data-panel="details">' +
+      '<div class="detail-grid"><div>' +
+        fields.slice(0, 11).map(detailFieldHtml).join('') +
+      '</div><div>' +
+        fields.slice(11).map(detailFieldHtml).join('') +
+      '</div></div>' +
+      '<div class="divider"></div>' +
+      '<div class="detail-field"><div class="df-label">Detailed Brief</div><div class="df-value">' + esc(r['Detailed Brief']) + '</div></div>' +
+      (r['Notes'] ? '<div class="detail-field"><div class="df-label">Notes</div><div class="df-value">' + esc(r['Notes']) + '</div></div>' : '') +
+    '</div>' +
+    '<div class="tab-panel" data-panel="timeline">' + timelineHtml(detail.updates) + '</div>' +
+    '<div class="tab-panel" data-panel="reminders">' + reminderHtml(detail.reminders) + '</div>';
+
+  document.getElementById('detail-modal-body').innerHTML = detailHtml;
+
+  document.querySelectorAll('#detail-modal-body .tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#detail-modal-body .tab-btn').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      document.querySelectorAll('#detail-modal-body .tab-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.panel === btn.dataset.tab); });
+    });
+  });
+  bindActionButtons(r);
+}
+
+function detailFieldHtml(pair) {
+  return '<div class="detail-field"><div class="df-label">' + pair[0] + '</div><div class="df-value">' + (pair[1] || '—') + '</div></div>';
+}
+function linkOrDash(url) {
+  if (!url) return '—';
+  return '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open link ↗</a>';
+}
+function timelineHtml(updates) {
+  if (updates.length === 0) return '<div class="empty-state">No updates logged yet.</div>';
+  return '<ul class="timeline">' + updates.map(function (u) {
+    return '<li><div class="tl-meta">' + fmtDateTime(u['Timestamp']) + ' &middot; ' + esc(u['Updated By']) + ' &middot; <strong>' + esc(u['Update Type']) + '</strong></div>' +
+      '<div class="tl-body">' + esc(u['Comment']) +
+      (u['New Status'] && u['New Status'] !== u['Previous Status'] ? '<br><span class="muted">Status: ' + esc(u['Previous Status'] || '—') + ' → ' + esc(u['New Status']) + '</span>' : '') +
+      (u['Blocker'] ? '<br><span class="muted">Blocker: ' + esc(u['Blocker']) + '</span>' : '') +
+      '</div></li>';
+  }).join('') + '</ul>';
+}
+function reminderHtml(reminders) {
+  if (reminders.length === 0) return '<div class="empty-state">No reminders sent yet.</div>';
+  return '<div class="table-wrap"><table class="data-table"><thead><tr><th>Sent</th><th>Type</th><th>Level</th><th>Recipients</th><th>Status</th></tr></thead><tbody>' +
+    reminders.map(function (r) {
+      return '<tr><td>' + fmtDateTime(r['Timestamp']) + '</td><td>' + esc(r['Reminder Type']) + '</td><td>L' + r['Escalation Level'] + '</td>' +
+        '<td>' + esc(r['Recipients']) + '</td><td>' + (r['Status'] === 'Sent' ? statusBadge('Published').replace('Published', 'Sent') : '<span class="badge badge-red">Failed</span>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+function buildDetailActions(r) {
+  var btns = [];
+  var canEdit = roleCan(['Administrator', 'Social Media Team']);
+  var canApprove = roleCan(['Administrator', 'Requester', 'Approver']);
+  var canManage = roleCan(['Administrator', 'Requester']);
+  var isTerminal = ['Published', 'Cancelled'].indexOf(r['Status']) !== -1;
+
+  if (canEdit && !isTerminal && r['Status'] !== 'On Hold') {
+    btns.push(actionBtn('Update Progress', 'progress', r, 'btn-primary'));
+  }
+  if (canEdit && !isTerminal && r['Status'] !== 'On Hold' && ['Approved', 'Scheduled', 'Published'].indexOf(r['Status']) === -1) {
+    btns.push(actionBtn('Submit Draft', 'draft', r));
+  }
+  if (canEdit && r['Status'] === 'Draft Submitted') {
+    btns.push(actionBtn('Request Final Approval', 'requestApproval', r));
+  }
+  if (canApprove && r['Approval Status'] === 'Pending') {
+    btns.push(actionBtn('Approve / Revise', 'approval', r, 'btn-green'));
+  }
+  if (canEdit && r['Status'] === 'Approved') {
+    btns.push(actionBtn('Mark Scheduled', 'schedule', r));
+  }
+  if (canEdit && ['Approved', 'Scheduled'].indexOf(r['Status']) !== -1) {
+    btns.push(actionBtn('Mark Published', 'publish', r, 'btn-green'));
+  }
+  if (canManage && r['Status'] === 'On Hold') {
+    btns.push(actionBtn('Resume', 'resume', r));
+  }
+  if (canManage && !isTerminal && r['Status'] !== 'On Hold') {
+    btns.push(actionBtn('Place On Hold', 'hold', r, 'btn-amber'));
+  }
+  if (canManage && !isTerminal) {
+    btns.push(actionBtn('Cancel Request', 'cancel', r, 'btn-red'));
+  }
+  if (canManage && isTerminal && r['Record Status'] !== 'Archived') {
+    btns.push(actionBtn('Archive', 'archive', r, 'btn-grey'));
+  }
+  return btns.join('');
+}
+function actionBtn(label, type, record, cls) {
+  return '<button class="btn btn-sm ' + (cls || '') + '" data-action="' + type + '" data-id="' + esc(record['Request ID']) + '">' + label + '</button>';
+}
+function bindActionButtons(record) {
+  document.querySelectorAll('#detail-modal-body [data-action]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.dataset.action === 'requestApproval') {
+        withLoader(callServer('requestApproval', record['Request ID'])).then(function () {
+          toast('Sent for final approval.', 'success');
+          refreshAfterAction(record['Request ID']);
+        }).catch(friendlyError);
+        return;
+      }
+      if (btn.dataset.action === 'resume') {
+        openActionModal('resume', record['Request ID'], record);
+        return;
+      }
+      openActionModal(btn.dataset.action, record['Request ID'], record);
+    });
+  });
+}
+
+function refreshAfterAction(requestId) {
+  closeModal('action-modal');
+  if (document.getElementById('detail-modal').classList.contains('active')) openDetailModal(requestId);
+  if (VIEW_LOADERS[STATE.currentView]) VIEW_LOADERS[STATE.currentView]();
+}
+
+/* ---------------------------------------------------------------------
+ * ACTION MODAL (progress, draft, approval, schedule, publish, hold, cancel, resume, archive)
+ * ------------------------------------------------------------------- */
+function openActionModal(type, requestId, record, opts) {
+  opts = opts || {};
+  var titleMap = {
+    progress: 'Update Progress', draft: 'Submit Draft', approval: 'Approval Decision', schedule: 'Mark Scheduled',
+    publish: 'Mark Published', hold: 'Place On Hold', cancel: 'Cancel Request', resume: 'Resume Request', archive: 'Archive Request'
+  };
+  document.getElementById('action-modal-title').textContent = titleMap[type] + ' — ' + requestId;
+  document.getElementById('action-modal-body').innerHTML = actionFormHtml(type, record, opts);
+  document.getElementById('action-modal-footer').innerHTML =
+    '<button class="btn" data-close="action-modal">Cancel</button>' +
+    '<button class="btn btn-primary" id="action-submit-btn">Confirm</button>';
+
+  document.querySelectorAll('#action-modal [data-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () { closeModal('action-modal'); });
+  });
+
+  var isDelayedToggle = document.getElementById('af-isDelayed');
+  if (isDelayedToggle) {
+    isDelayedToggle.addEventListener('change', function () {
+      document.getElementById('delay-fields').style.display = isDelayedToggle.checked ? 'block' : 'none';
+    });
+  }
+  var decisionSelect = document.getElementById('af-decision');
+  if (decisionSelect) {
+    decisionSelect.addEventListener('change', function () {
+      document.getElementById('revision-due-field').style.display = decisionSelect.value === 'Revision Required' ? 'block' : 'none';
+    });
+  }
+
+  document.getElementById('action-submit-btn').addEventListener('click', function () {
+    submitActionModal(type, requestId);
+  });
+  openModal('action-modal');
+}
+
+function actionFormHtml(type, record, opts) {
+  var o = STATE.options;
+  var todayStr = new Date().toISOString().substring(0, 10);
+
+  if (type === 'progress') {
+    var preset = opts.presetStatus || record['Status'];
+    return '<div class="form-grid">' +
+      '<div class="form-field"><label>Status <span class="req">*</span></label><select id="af-status">' +
+        o.statuses.map(function (s) { return '<option value="' + s + '"' + (s === preset ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="form-field"><label>Progress % <span class="req">*</span></label><input type="number" id="af-progress" min="0" max="100" value="' + (record['Progress Percentage'] || 0) + '"></div>' +
+      '<div class="form-field full"><label>Progress Comment <span class="req">*</span></label><textarea id="af-comment" placeholder="What changed since the last update?"></textarea></div>' +
+      '<div class="form-field full"><label>Next Action <span class="req">*</span></label><input type="text" id="af-nextAction"></div>' +
+      '<div class="form-field"><label>Expected Completion Date</label><input type="date" id="af-expectedCompletion"></div>' +
+      '<div class="form-field"><label class="chk" style="margin-top:22px;"><input type="checkbox" id="af-isDelayed"> This update reports a delay</label></div>' +
+      '<div class="form-field full" id="delay-fields" style="display:none;">' +
+        '<div class="form-grid">' +
+          '<div class="form-field full"><label>Delay Reason <span class="req">*</span></label><input type="text" id="af-delayReason"></div>' +
+          '<div class="form-field full"><label>Blocker <span class="req">*</span></label><input type="text" id="af-blocker"></div>' +
+          '<div class="form-field"><label>Revised Due Date <span class="req">*</span></label><input type="date" id="af-revisedDueDate" min="' + todayStr + '"></div>' +
+        '</div></div>' +
+    '</div>';
+  }
+  if (type === 'draft') {
+    return '<div class="form-grid">' +
+      '<div class="form-field full"><label>Draft Link <span class="req">*</span></label><input type="url" id="af-draftLink" value="' + esc(record['Draft Link'] || '') + '"></div>' +
+      '<div class="form-field full"><label>Comment</label><textarea id="af-comment"></textarea></div>' +
+    '</div>';
+  }
+  if (type === 'approval') {
+    return '<div class="form-grid">' +
+      '<div class="form-field full"><label>Decision <span class="req">*</span></label><select id="af-decision">' +
+        '<option value="Approved">Approve</option><option value="Revision Required">Request Revision</option><option value="Rejected">Reject</option>' +
+      '</select></div>' +
+      '<div class="form-field full"><label>Approval Comment</label><textarea id="af-comment"></textarea></div>' +
+      '<div class="form-field full" id="revision-due-field" style="display:none;"><label>Revised Expected Delivery Date <span class="req">*</span></label><input type="date" id="af-revisedDueDate" min="' + todayStr + '"></div>' +
+      '<div class="form-field full"><div class="detail-field"><div class="df-label">Draft</div><div class="df-value">' + linkOrDash(record['Draft Link']) + '</div></div></div>' +
+    '</div>';
+  }
+  if (type === 'schedule') {
+    return '<div class="form-grid">' +
+      '<div class="form-field"><label>Scheduled Date</label><input type="date" id="af-scheduledDate" min="' + todayStr + '"></div>' +
+      '<div class="form-field full"><label>Comment</label><textarea id="af-comment"></textarea></div>' +
+    '</div>';
+  }
+  if (type === 'publish') {
+    return '<div class="form-grid">' +
+      '<div class="form-field full"><label>Published URL <span class="req">*</span></label><input type="url" id="af-publishedUrl" value="' + esc(record['Published Link'] || '') + '"></div>' +
+      '<div class="form-field"><label>Publication Date <span class="req">*</span></label><input type="date" id="af-publicationDate" value="' + todayStr + '"></div>' +
+      '<div class="form-field"><label>Platform <span class="req">*</span></label><select id="af-platform">' +
+        o.platforms.map(function (p) { return '<option value="' + p + '"' + (p === record['Platform'] ? ' selected' : '') + '>' + p + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="form-field full"><label>Final Comment</label><textarea id="af-comment"></textarea></div>' +
+    '</div>';
+  }
+  if (type === 'hold') {
+    return '<div class="form-grid"><div class="form-field full"><label>Hold Reason <span class="req">*</span></label><textarea id="af-reason"></textarea></div></div>';
+  }
+  if (type === 'cancel') {
+    return '<div class="form-grid"><div class="form-field full"><label>Cancellation Reason <span class="req">*</span></label><textarea id="af-reason"></textarea></div>' +
+      '<div class="form-field full"><p class="field-error">This will stop all reminders and mark the request as Cancelled. This action cannot be undone from the interface.</p></div></div>';
+  }
+  if (type === 'resume') {
+    return '<div class="form-grid"><div class="form-field full"><label>Resume with Status</label><select id="af-newStatus">' +
+      o.statuses.slice(0, 8).map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('') +
+      '</select></div></div>';
+  }
+  if (type === 'archive') {
+    return '<div class="form-grid"><div class="form-field full"><p>Archive this completed record? It will move to the Archived Records view and remain fully searchable.</p></div></div>';
+  }
+  return '';
+}
+
+function submitActionModal(type, requestId) {
+  var btn = document.getElementById('action-submit-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="inline-spinner"></span> Saving...';
+
+  var promise;
+  try {
+    if (type === 'progress') {
+      var isDelayed = document.getElementById('af-isDelayed').checked;
+      promise = callServer('updateProgress', requestId, {
+        status: val('af-status'), progress: val('af-progress'), comment: val('af-comment'),
+        nextAction: val('af-nextAction'), expectedCompletionDate: val('af-expectedCompletion'),
+        isDelayed: isDelayed, delayReason: val('af-delayReason'), blocker: val('af-blocker'), revisedDueDate: val('af-revisedDueDate')
+      });
+    } else if (type === 'draft') {
+      promise = callServer('submitDraft', requestId, val('af-draftLink'), val('af-comment'));
+    } else if (type === 'approval') {
+      promise = callServer('recordApproval', requestId, val('af-decision'), val('af-comment'), val('af-revisedDueDate'));
+    } else if (type === 'schedule') {
+      promise = callServer('markScheduled', requestId, val('af-scheduledDate'), val('af-comment'));
+    } else if (type === 'publish') {
+      promise = callServer('markPublished', requestId, {
+        publishedUrl: val('af-publishedUrl'), publicationDate: val('af-publicationDate'), platform: val('af-platform'), comment: val('af-comment')
+      });
+    } else if (type === 'hold') {
+      promise = callServer('holdRequest', requestId, val('af-reason'));
+    } else if (type === 'cancel') {
+      if (!confirm('Are you sure you want to cancel this request?')) { btn.disabled = false; btn.textContent = 'Confirm'; return; }
+      promise = callServer('cancelRequest', requestId, val('af-reason'));
+    } else if (type === 'resume') {
+      promise = callServer('resumeRequest', requestId, val('af-newStatus'));
+    } else if (type === 'archive') {
+      if (!confirm('Archive this request?')) { btn.disabled = false; btn.textContent = 'Confirm'; return; }
+      promise = callServer('archiveRequest', requestId);
+    }
+  } catch (err) {
+    friendlyError(err);
+    btn.disabled = false; btn.textContent = 'Confirm';
+    return;
+  }
+
+  promise.then(function () {
+    toast('Saved successfully.', 'success');
+    refreshAfterAction(requestId);
+  }).catch(function (err) {
+    friendlyError(err);
+  }).finally(function () {
+    btn.disabled = false; btn.textContent = 'Confirm';
+  });
+}
+
+/* ---------------------------------------------------------------------
+ * APPROVAL QUEUE
+ * ------------------------------------------------------------------- */
+function loadApprovals() {
+  withLoader(callServer('getTrackerData', { approvalStatus: 'Pending' })).then(function (rows) {
+    STATE.approvalRows = rows;
+    var tbody = document.querySelector('#approvals-table tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Nothing is awaiting approval.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (r) {
+      return '<tr><td>' + esc(r['Request ID']) + '</td><td>' + esc(r['Content Title']) + '</td>' +
+        '<td>' + esc(r['Assigned To'] || '—') + '</td><td>' + linkOrDash(r['Draft Link']) + '</td>' +
+        '<td>' + dueLabel(r) + '</td><td>' + priorityBadge(r['Priority']) + '</td>' +
+        '<td><button class="btn btn-sm btn-primary" data-open="' + esc(r['Request ID']) + '">Review</button></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-open]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openDetailModal(btn.dataset.open); });
+    });
+  }).catch(friendlyError);
+}
+
+/* ---------------------------------------------------------------------
+ * REPORTS
+ * ------------------------------------------------------------------- */
+function runReport() {
+  var range = { from: val('report-from'), to: val('report-to') };
+  withLoader(callServer('getReportsData', range)).then(renderReports).catch(friendlyError);
+}
+
+function renderReports(data) {
+  var groups = [
+    { title: 'Performance by Team Member', rows: data.byAssignee },
+    { title: 'Performance by Property', rows: data.byProperty },
+    { title: 'Performance by Platform', rows: data.byPlatform },
+    { title: 'Performance by Content Type', rows: data.byContentType }
+  ];
+  document.getElementById('reports-container').innerHTML = groups.map(function (g) {
+    if (g.rows.length === 0) return '<div class="panel"><h3>' + g.title + '</h3><div class="empty-state">No data</div></div>';
+    return '<div class="panel"><h3>' + g.title + '</h3><div class="table-wrap"><table class="data-table">' +
+      '<thead><tr><th>Name</th><th>Total</th><th>Active</th><th>Overdue</th><th>On Time</th><th>Delayed</th><th>On-Time %</th></tr></thead><tbody>' +
+      g.rows.map(function (r) {
+        return '<tr><td>' + esc(r.name) + '</td><td>' + r.total + '</td><td>' + r.active + '</td><td>' + r.overdue + '</td>' +
+          '<td>' + r.onTime + '</td><td>' + r.delayed + '</td><td>' + (r.onTimePct === null ? '—' : r.onTimePct + '%') + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }).join('');
+}
+
+/* ---------------------------------------------------------------------
+ * ARCHIVE
+ * ------------------------------------------------------------------- */
+var ARCHIVE_COLUMNS = ['Request ID', 'Title', 'Property', 'Status', 'Original Due', 'Revised Due', 'Completed', 'Days Delayed', 'Draft', 'Published', 'Actions'];
+
+function loadArchive() {
+  if (!document.getElementById('archive-filter-bar').children.length) buildFilterBar('archive-filter-bar', false);
+  var filters = readFilters('archive-filter-bar');
+  withLoader(callServer('getArchivedRecords', filters)).then(function (rows) {
+    STATE.archiveRows = rows;
+    renderArchiveTable(rows);
+  }).catch(friendlyError);
+}
+
+function renderArchiveTable(rows) {
+  var table = document.getElementById('archive-table');
+  table.querySelector('thead').innerHTML = '<tr>' + ARCHIVE_COLUMNS.map(function (c) { return '<th>' + c + '</th>'; }).join('') + '</tr>';
+  if (rows.length === 0) {
+    table.querySelector('tbody').innerHTML = '<tr><td colspan="' + ARCHIVE_COLUMNS.length + '"><div class="empty-state">No archived records match these filters.</div></td></tr>';
+    return;
+  }
+  table.querySelector('tbody').innerHTML = rows.map(function (r) {
+    var due = toDateSafe(r['Original Due Date']);
+    var completion = toDateSafe(r['Completion Date']);
+    var delayDays = (due && completion) ? Math.round((completion - due) / 86400000) : null;
+    return '<tr>' +
+      '<td>' + esc(r['Request ID']) + '</td><td>' + esc(r['Content Title']) + '</td><td>' + esc(r['Property']) + '</td>' +
+      '<td>' + statusBadge(r['Status']) + '</td><td>' + fmtDate(r['Original Due Date']) + '</td>' +
+      '<td>' + (r['Revised Due Date'] ? fmtDate(r['Revised Due Date']) : '—') + '</td>' +
+      '<td>' + fmtDate(r['Completion Date']) + '</td>' +
+      '<td>' + (delayDays === null ? '—' : (delayDays > 0 ? delayDays : 0)) + '</td>' +
+      '<td>' + linkOrDash(r['Draft Link']) + '</td><td>' + linkOrDash(r['Published Link']) + '</td>' +
+      '<td><button class="btn btn-sm" data-open="' + esc(r['Request ID']) + '">Open</button></td>' +
+    '</tr>';
+  }).join('');
+  table.querySelectorAll('[data-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () { openDetailModal(btn.dataset.open); });
+  });
+}
+function toDateSafe(v) { if (!v) return null; var d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+
+/* ---------------------------------------------------------------------
+ * TEAM MANAGEMENT
+ * ------------------------------------------------------------------- */
+function loadTeam() {
+  withLoader(callServer('getTeamMembers')).then(function (rows) {
+    STATE.teamRows = rows;
+    renderTeamTable(rows);
+  }).catch(friendlyError);
+}
+
+function renderTeamTable(rows) {
+  var tbody = document.querySelector('#team-table tbody');
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No team members yet.</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function (m) {
+    var active = String(m['Active']).toLowerCase() !== 'no';
+    return '<tr><td>' + esc(m['Name']) + '</td><td>' + esc(m['Email']) + '</td><td>' + esc(m['Role']) + '</td>' +
+      '<td>' + esc(m['Department']) + '</td><td>' + esc(m['Is Social Media Manager']) + '</td><td>' + esc(m['Is Department Head']) + '</td>' +
+      '<td>' + (active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-grey">Inactive</span>') + '</td>' +
+      '<td class="row-actions"><button class="btn btn-sm" data-edit="' + esc(m['Email']) + '">Edit</button>' +
+      '<button class="btn btn-sm" data-toggle="' + esc(m['Email']) + '" data-active="' + active + '">' + (active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+  }).join('');
+  tbody.querySelectorAll('[data-edit]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var member = STATE.teamRows.filter(function (m) { return m['Email'] === btn.dataset.edit; })[0];
+      openTeamModal(member);
+    });
+  });
+  tbody.querySelectorAll('[data-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var makeActive = btn.dataset.active !== 'true';
+      withLoader(callServer('setTeamMemberActive', btn.dataset.toggle, makeActive)).then(function () {
+        toast('Updated.', 'success'); loadTeam();
+      }).catch(friendlyError);
+    });
+  });
+}
+
+function openTeamModal(member) {
+  var roles = STATE.options.roles;
+  document.querySelector('#team-modal .modal-header h3').textContent = member ? 'Edit Team Member' : 'Add Team Member';
+  document.getElementById('team-modal-body').innerHTML =
+    '<div class="form-grid">' +
+    '<div class="form-field full"><label>Name <span class="req">*</span></label><input type="text" id="tf-name" value="' + esc(member ? member['Name'] : '') + '"></div>' +
+    '<div class="form-field full"><label>Email <span class="req">*</span></label><input type="email" id="tf-email" value="' + esc(member ? member['Email'] : '') + '"' + (member ? ' readonly' : '') + '></div>' +
+    '<div class="form-field"><label>Role <span class="req">*</span></label><select id="tf-role">' +
+      roles.map(function (r) { return '<option value="' + r + '"' + (member && member['Role'] === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') +
+    '</select></div>' +
+    '<div class="form-field"><label>Department</label><input type="text" id="tf-department" value="' + esc(member ? member['Department'] : '') + '"></div>' +
+    '<div class="form-field"><label class="chk"><input type="checkbox" id="tf-manager"' + (member && String(member['Is Social Media Manager']).toLowerCase() === 'yes' ? ' checked' : '') + '> Social Media Manager (Level 2 escalation)</label></div>' +
+    '<div class="form-field"><label class="chk"><input type="checkbox" id="tf-depthead"' + (member && String(member['Is Department Head']).toLowerCase() === 'yes' ? ' checked' : '') + '> Department Head (Level 3 escalation)</label></div>' +
+    '</div>';
+  document.getElementById('team-modal-footer').innerHTML =
+    '<button class="btn" data-close="team-modal">Cancel</button><button class="btn btn-primary" id="team-save-btn">Save</button>';
+  document.querySelectorAll('#team-modal [data-close]').forEach(function (b) { b.addEventListener('click', function () { closeModal('team-modal'); }); });
+  document.getElementById('team-save-btn').addEventListener('click', function () {
+    var payload = {
+      name: val('tf-name'), email: val('tf-email'), role: val('tf-role'), department: val('tf-department'),
+      isSocialMediaManager: document.getElementById('tf-manager').checked, isDepartmentHead: document.getElementById('tf-depthead').checked, active: true
+    };
+    withLoader(callServer('upsertTeamMember', payload)).then(function () {
+      toast('Team member saved.', 'success');
+      closeModal('team-modal');
+      loadTeam();
+    }).catch(friendlyError);
+  });
+  openModal('team-modal');
+}
+
+/* ---------------------------------------------------------------------
+ * SETTINGS
+ * ------------------------------------------------------------------- */
+function loadSettings() {
+  withLoader(callServer('getAllSettings')).then(renderSettings).catch(friendlyError);
+}
+
+function renderSettings(rows) {
+  var html = '<div class="form-grid">' + rows.map(function (r, i) {
+    return '<div class="form-field full"><label>' + esc(r['Key']) + '</label>' +
+      '<input type="text" data-setting-key="' + esc(r['Key']) + '" value="' + esc(r['Value']) + '">' +
+      '<span class="hint">' + esc(r['Description']) + '</span></div>';
+  }).join('') + '</div>' +
+  '<div class="form-actions"><button class="btn btn-primary" id="settings-save-btn">Save Settings</button></div>';
+  document.getElementById('settings-panel').innerHTML = html;
+  document.getElementById('settings-save-btn').addEventListener('click', function () {
+    var entries = [];
+    document.querySelectorAll('[data-setting-key]').forEach(function (input) {
+      entries.push({ key: input.dataset.settingKey, value: input.value });
+    });
+    withLoader(callServer('saveSettings', entries)).then(function () {
+      toast('Settings saved.', 'success');
+      return callServer('getBootstrapData');
+    }).then(function (data) {
+      STATE.options = data.options;
+      STATE.settings = data.settings;
+    }).catch(friendlyError);
+  });
+}
+</script>
