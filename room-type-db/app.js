@@ -365,15 +365,13 @@ var App = (function () {
     var arrShare = shareRows(byGroupTyLy(adTy, adLy, function (r) { return r._rtg; }, Calc.calculateArrivalRooms));
     Charts.hbar('ov-arr-share', arrShare, { pct: true, tyLabel: 'Arrival Share' });
 
-    var depShare = shareRows(byGroupTyLy(ddTy, ddLy, function (r) { return r._rtg; }, Calc.calculateDepartureRooms));
-    Charts.hbar('ov-dep-share', depShare, { pct: true, tyLabel: 'Departure Share' });
-
     var p = tyPeriod();
     var dates = Calc.includedDates(p.from, p.to, latestBd);
     var occRows = occupancyByRtg(bdTy, bdLy, dates.length);
     Charts.vbar('ov-occ', occRows, { pct: true, tyLabel: 'Occupancy %' });
 
-    renderTrend('ov-trend', adTy, adLy, ddTy, ddLy);
+    renderSingleTrend('ov-arr-trend', adTy, adLy, 'Arrival Date', 'Arrival Rooms', 'Arrivals');
+    renderSingleTrend('ov-dep-trend', ddTy, ddLy, 'Departure Date', 'Departure Rooms', 'Departures');
   }
 
   function occupancyByRtg(bdTy, bdLy, nDatesTy) {
@@ -391,11 +389,13 @@ var App = (function () {
     }).filter(function (r) { return r.ty !== null || r.ly !== null; });
   }
 
-  function renderTrend(elId, adTy, adLy, ddTy, ddLy) {
+  /* Dedicated daily trend for a single flow (arrivals OR departures):
+   * TY line + LY line; tooltip carries TY, LY, and variance per day. */
+  function renderSingleTrend(elId, tyRecs, lyRecs, dateField, valueField, label) {
     var p = tyPeriod();
     var dates = Calc.includedDates(p.from, p.to, latestBd);
     if (!dates.length) { Charts.noData(elId); return; }
-    function daily(recs, dateField, valueField) {
+    function daily(recs) {
       var m = {};
       recs.forEach(function (r) {
         var v = r[valueField];
@@ -404,24 +404,43 @@ var App = (function () {
       });
       return m;
     }
-    var arrByDay = daily(adTy, 'Arrival Date', 'Arrival Rooms');
-    var depByDay = daily(ddTy, 'Departure Date', 'Departure Rooms');
+    var tyByDay = daily(tyRecs);
+    var lyByDay = daily(lyRecs);
     var lyDates = dates.map(function (d) { return Calc.shiftYear(d, -1); });
-    var arrLyByDay = daily(adLy, 'Arrival Date', 'Arrival Rooms');
-    var depLyByDay = daily(ddLy, 'Departure Date', 'Departure Rooms');
-
-    var cats = dates.map(function (d) { return d.substring(5); });
-    var series = [];
+    var tyData = dates.map(function (d) { return tyByDay[d] || 0; });
+    var lyData = lyDates.map(function (d) { return lyByDay[d] || 0; });
     var mode = Filters.state.comparisonMode;
-    if (mode !== 'ly') {
-      series.push({ name: 'Arrivals', data: dates.map(function (d) { return arrByDay[d] || 0; }), color: FLORA.tyColor });
-      series.push({ name: 'Departures', data: dates.map(function (d) { return depByDay[d] || 0; }), color: '#7E6489' });
+    var series = [];
+    if (mode !== 'ly') series.push({ name: label, data: tyData, color: FLORA.tyColor });
+    if (mode !== 'ty' && lyRecs.length) series.push({ name: label + ' LY', data: lyData, color: FLORA.lyColor });
+    var chart = (function () { Charts.line(elId, dates.map(function (d) { return d.substring(5); }), series); })();
+    // richer tooltip with variance
+    var inst = echarts.getInstanceByDom(document.getElementById(elId));
+    if (inst) {
+      inst.setOption({
+        tooltip: {
+          trigger: 'axis',
+          formatter: function (params) {
+            var i = params[0].dataIndex;
+            var html = '<strong>' + dates[i] + '</strong>';
+            if (mode !== 'ly') html += '<br/>' + label + ': ' + Calc.fmtInt(tyData[i]);
+            if (mode !== 'ty' && lyRecs.length) {
+              html += '<br/>LY (' + lyDates[i] + '): ' + Calc.fmtInt(lyData[i]);
+              var v = Calc.calculateVariance(tyData[i], lyData[i]);
+              html += '<br/>Variance: ' + Calc.fmtVarAbs(v.abs) + ' (' + Calc.fmtVarPct(v.pct) + ')';
+            }
+            return html;
+          }
+        },
+        series: series.map(function (s, idx) {
+          return {
+            label: idx === 0 && dates.length <= 14
+              ? { show: true, position: 'top', fontSize: 9.5, formatter: function (pp) { return Charts.fmtShort(pp.value); } }
+              : { show: false }
+          };
+        })
+      });
     }
-    if (mode !== 'ty' && adLy.length + ddLy.length > 0) {
-      series.push({ name: 'Arrivals LY', data: lyDates.map(function (d) { return arrLyByDay[d] || 0; }), color: FLORA.lyColor });
-      series.push({ name: 'Departures LY', data: lyDates.map(function (d) { return depLyByDay[d] || 0; }), color: '#E0D3E8' });
-    }
-    Charts.line(elId, cats, series);
   }
 
   /* ================= Tab 2 — Room Type Statistics ================= */
@@ -506,8 +525,23 @@ var App = (function () {
     }
     Charts.hbar('rt-share-chart', chartRows, { pct: md.pct, tyLabel: md.label });
 
+    // Property Occupancy gauge: occupied ÷ sellable × 100 for the scope
+    var occT = tyOccupancy(bdTy);
+    var occL = hasLy ? lyOccupancy(bdLy) : { pct: null };
+    Charts.gauge('rt-gauge', occT.pct, occL.pct, 'Property Occupancy');
+    document.getElementById('rt-gauge-detail').innerHTML = occT.pct === null
+      ? '<span class="muted">No valid inventory in scope</span>'
+      : 'Occupied ' + Calc.fmtInt(occT.sold) + ' of ' + Calc.fmtInt(occT.available) + ' sellable room-nights' +
+        (hasLy && occL.pct !== null ? ' · LY ' + Calc.fmtPct(occL.pct) + ' <span class="muted">(' + Calc.fmtPp(Calc.calculatePercentagePointVariance(occT.pct, occL.pct)) + ')</span>' : '');
+
+    // Room Type Share of Property Occupancy: occupied rooms per RTG ÷ total occupied
+    var occShare = shareRows(byGroupTyLy(
+      bdTy.filter(function (r) { return r._validCombo; }),
+      bdLy.filter(function (r) { return r._validCombo; }),
+      function (r) { return r._rtg; }, Calc.calculateRoomNightsSold));
+    Charts.hbar('rt-occ-share', occShare, { pct: true, tyLabel: 'Share of Occupied' });
+
     renderRtOccTrend(bdTy, bdLy);
-    renderRtMatrix(md, bdTy, adTy, ddTy, nTy);
   }
 
   function occCell(v) {
@@ -536,71 +570,174 @@ var App = (function () {
       });
     }
     var lyDates = dates.map(function (d) { return Calc.shiftYear(d, -1); });
+    var tyData = dailyOcc(bdTy, dates);
+    var lyData = dailyOcc(bdLy, lyDates);
     var series = [];
     var mode = Filters.state.comparisonMode;
-    if (mode !== 'ly') series.push({ name: 'Occupancy %', data: dailyOcc(bdTy, dates), color: FLORA.tyColor });
-    if (mode !== 'ty' && bdLy.length) series.push({ name: 'Occupancy % LY', data: dailyOcc(bdLy, lyDates), color: FLORA.lyColor });
+    if (mode !== 'ly') series.push({ name: 'Occupancy %', data: tyData, color: FLORA.tyColor });
+    if (mode !== 'ty' && bdLy.length) series.push({ name: 'Occupancy % LY', data: lyData, color: FLORA.lyColor });
     Charts.line('rt-occ-trend', dates.map(function (d) { return d.substring(5); }), series, { pct: true });
-  }
-
-  function renderRtMatrix(md, bdTy, adTy, ddTy, nTy) {
-    var combos = occCombosInScope();
-    var props = [], rtgs = [];
-    combos.forEach(function (c) {
-      if (props.indexOf(c.property) === -1) props.push(c.property);
-      if (rtgs.indexOf(c.rtg) === -1) rtgs.push(c.rtg);
-    });
-    props.sort(); rtgs.sort();
-    var cells = [];
-    combos.forEach(function (c) {
-      var v;
-      if (rtMetric === 'occupancy') {
-        var recs = bdTy.filter(function (r) { return r['Property'] === c.property && r._rtg === c.rtg; });
-        var occ = Calc.calculateOccupancy(recs, [c], nTy);
-        v = occ.pct === null ? 0 : Math.round(occ.pct * 10) / 10;
-      } else if (rtMetric === 'departures') {
-        v = Calc.calculateDepartureRooms(ddTy.filter(function (r) { return r['Property'] === c.property && r._rtg === c.rtg; }));
-      } else if (rtMetric === 'arrivals') {
-        v = Calc.calculateArrivalRooms(adTy.filter(function (r) { return r['Property'] === c.property && r._rtg === c.rtg; }));
-      } else {
-        v = Calc.calculateRoomNightsSold(bdTy.filter(function (r) { return r['Property'] === c.property && r._rtg === c.rtg; }));
-      }
-      cells.push([props.indexOf(c.property), rtgs.indexOf(c.rtg), v]);
-    });
-    Charts.heatmap('rt-matrix', props, rtgs, cells, {
-      cellLabel: function (v) {
-        var suffix = rtMetric === 'occupancy' ? '%' : '';
-        return props[v[0]] + ' × ' + rtgs[v[1]] + ': ' + v[2] + suffix;
-      }
-    });
+    // capacity reference (100%) + full tooltip with variance
+    var inst = echarts.getInstanceByDom(document.getElementById('rt-occ-trend'));
+    if (inst) {
+      inst.setOption({
+        tooltip: {
+          trigger: 'axis',
+          formatter: function (params) {
+            var i = params[0].dataIndex;
+            var html = '<strong>' + dates[i] + '</strong>';
+            if (mode !== 'ly') html += '<br/>Occupancy: ' + Calc.fmtPct(tyData[i]);
+            if (mode !== 'ty' && bdLy.length) {
+              html += '<br/>LY (' + lyDates[i] + '): ' + Calc.fmtPct(lyData[i]);
+              html += '<br/>Variance: ' + Calc.fmtPp(Calc.calculatePercentagePointVariance(tyData[i], lyData[i]));
+            }
+            html += '<br/><span class="muted">Capacity reference: 100%</span>';
+            return html;
+          }
+        },
+        yAxis: { max: function (value) { return Math.max(100, Math.ceil(value.max / 10) * 10); } },
+        series: [{
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { color: '#B3413D', type: 'dashed', width: 1 },
+            label: { formatter: 'Capacity 100%', fontSize: 10, color: '#B3413D' },
+            data: [{ yAxis: 100 }]
+          }
+        }]
+      });
+    }
   }
 
   /* ================= Tab 3 — Guest Occupancy Combinations ================= */
+  var cmbMetric = 'arrivals';
+
+  var CMB_METRICS = {
+    arrivals: { label: 'Arrivals', fmt: Calc.fmtInt },
+    reservations: { label: 'Reservations', fmt: Calc.fmtInt },
+    roomnights: { label: 'Room Nights', fmt: Calc.fmtInt },
+    revenue: { label: 'Revenue', fmt: function (v) { return v === null ? 'N/A' : Charts.fmtShort(v); } },
+    adr: { label: 'ADR', fmt: function (v) { return v === null ? 'N/A' : v.toFixed(1); } },
+    share: { label: 'Share %', fmt: Calc.fmtPct }
+  };
+
+  /* Aggregate every metric per Adults|Children cell in one pass. */
+  function comboCellStats(adRecs, bdRecs) {
+    var cells = {};
+    function cell(a, c) {
+      var k = a + '|' + c;
+      return cells[k] || (cells[k] = { arrivals: 0, reservations: 0, confs: {}, roomnights: 0, revenue: 0, rtgs: {} });
+    }
+    adRecs.forEach(function (r) {
+      var a = r['Adults'], c = r['Children'];
+      if (a === null || c === null || r._occ === 'Invalid') return;
+      var ar = r['Arrival Rooms'];
+      if (ar !== null && ar > 0) {
+        var cl = cell(a, c);
+        cl.arrivals += ar;
+        var conf = r['Confirmation Number'] || (r['Guest Name'] + '|' + r['Arrival Date']);
+        if (!cl.confs[conf]) { cl.confs[conf] = 1; cl.reservations++; }
+        cl.rtgs[r._rtg] = (cl.rtgs[r._rtg] || 0) + ar;
+      }
+    });
+    bdRecs.forEach(function (r) {
+      var a = r['Adults'], c = r['Children'];
+      if (a === null || c === null || r._occ === 'Invalid') return;
+      var cl = cell(a, c);
+      if (r['Room Nights'] !== null) cl.roomnights += r['Room Nights'];
+      if (r['Revenue'] !== null) cl.revenue += r['Revenue'];
+    });
+    return cells;
+  }
+
+  function comboMetricValue(cl, totalArrivals) {
+    if (!cl) return null;
+    if (cmbMetric === 'arrivals') return cl.arrivals || null;
+    if (cmbMetric === 'reservations') return cl.reservations || null;
+    if (cmbMetric === 'roomnights') return cl.roomnights || null;
+    if (cmbMetric === 'revenue') return cl.revenue || null;
+    if (cmbMetric === 'adr') return cl.roomnights > 0 ? cl.revenue / cl.roomnights : null;
+    if (cmbMetric === 'share') return totalArrivals > 0 && cl.arrivals ? (cl.arrivals / totalArrivals) * 100 : null;
+    return null;
+  }
+
   function renderCombos() {
     var adTy = tyRecords('ad'), adLy = lyRecords('ad');
+    var bdTy = tyRecords('bd');
 
-    var matrix = Calc.occupancyMatrix(adTy);
-    if (matrix.length) {
-      var as = [], cs = [];
-      matrix.forEach(function (m) {
-        if (as.indexOf(m.a) === -1) as.push(m.a);
-        if (cs.indexOf(m.c) === -1) cs.push(m.c);
+    document.querySelectorAll('#cmb-metric button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.metric === cmbMetric);
+      b.onclick = function () { cmbMetric = b.dataset.metric; renderCombos(); };
+    });
+
+    // Fixed matrix per spec: rows 1–8 adults, columns 0–6 children
+    var ADULT_ROWS = [1, 2, 3, 4, 5, 6, 7, 8];
+    var CHILD_COLS = [0, 1, 2, 3, 4, 5, 6];
+    var cells = comboCellStats(adTy, bdTy);
+    var totalArrivals = 0;
+    Object.keys(cells).forEach(function (k) { totalArrivals += cells[k].arrivals; });
+    var md = CMB_METRICS[cmbMetric];
+
+    function cl(r, c) { return cells[ADULT_ROWS[r] + '|' + CHILD_COLS[c]]; }
+    function val(r, c) { return comboMetricValue(cl(r, c), totalArrivals); }
+    function sumRow(r) {
+      var agg = { arrivals: 0, reservations: 0, roomnights: 0, revenue: 0 };
+      CHILD_COLS.forEach(function (_, c) {
+        var x = cl(r, c); if (!x) return;
+        agg.arrivals += x.arrivals; agg.reservations += x.reservations;
+        agg.roomnights += x.roomnights; agg.revenue += x.revenue;
       });
-      as.sort(function (x, y) { return x - y; });
-      cs.sort(function (x, y) { return x - y; });
-      var cells = matrix.map(function (m) { return [as.indexOf(m.a), cs.indexOf(m.c), m.rooms]; });
-      Charts.heatmap('cmb-heatmap', as.map(function (a) { return a + 'A'; }), cs.map(function (c) { return c + 'C'; }), cells, {
-        cellLabel: function (v) { return as[v[0]] + ' Adults × ' + cs[v[1]] + ' Children: ' + Calc.fmtInt(v[2]) + ' arrival rooms'; },
-        onCellClick: function (v) {
-          openRecordsModal('Reservations — ' + as[v[0]] + ' Adults + ' + cs[v[1]] + ' Children',
-            adTy.filter(function (r) {
-              return r['Adults'] === as[v[0]] && r['Children'] === cs[v[1]] && (r['Arrival Rooms'] || 0) > 0;
-            }));
-        }
-      });
-    } else {
-      Charts.noData('cmb-heatmap');
+      return comboMetricValue(agg, totalArrivals);
     }
+    function sumCol(c) {
+      var agg = { arrivals: 0, reservations: 0, roomnights: 0, revenue: 0 };
+      ADULT_ROWS.forEach(function (_, r) {
+        var x = cl(r, c); if (!x) return;
+        agg.arrivals += x.arrivals; agg.reservations += x.reservations;
+        agg.roomnights += x.roomnights; agg.revenue += x.revenue;
+      });
+      return comboMetricValue(agg, totalArrivals);
+    }
+    var grandAgg = { arrivals: 0, reservations: 0, roomnights: 0, revenue: 0 };
+    Object.keys(cells).forEach(function (k) {
+      var x = cells[k];
+      grandAgg.arrivals += x.arrivals; grandAgg.reservations += x.reservations;
+      grandAgg.roomnights += x.roomnights; grandAgg.revenue += x.revenue;
+    });
+
+    UI.heatTable(document.getElementById('cmb-heatmap'), {
+      corner: 'Adults ↓ / Children →',
+      rowLabels: ADULT_ROWS.map(function (a) { return a + (a === 1 ? ' Adult' : ' Adults'); }),
+      colLabels: CHILD_COLS.map(function (c) { return c + (c === 1 ? ' Child' : ' Children'); }),
+      value: val,
+      fmt: function (v) { return v === null ? '–' : md.fmt(v); },
+      rowTotal: sumRow,
+      colTotal: sumCol,
+      grandTotal: comboMetricValue(grandAgg, totalArrivals),
+      title: function (r, c, v) {
+        var x = cl(r, c);
+        if (!x) return 'No records for this combination';
+        var topRtgs = Object.keys(x.rtgs).sort(function (p, q) { return x.rtgs[q] - x.rtgs[p]; }).slice(0, 3).join(', ');
+        var adr = x.roomnights > 0 ? (x.revenue / x.roomnights).toFixed(1) : 'N/A';
+        var share = totalArrivals > 0 ? Calc.fmtPct((x.arrivals / totalArrivals) * 100) : 'N/A';
+        return ADULT_ROWS[r] + ' Adults + ' + CHILD_COLS[c] + ' Children (guests: ' + (ADULT_ROWS[r] + CHILD_COLS[c]) + ')' +
+          '\nRoom types: ' + (topRtgs || '–') +
+          '\nArrivals: ' + Calc.fmtInt(x.arrivals) + ' · Reservations: ' + Calc.fmtInt(x.reservations) +
+          '\nRoom nights: ' + Calc.fmtInt(x.roomnights) + ' · Revenue: ' + Charts.fmtShort(x.revenue) +
+          '\nADR: ' + adr + ' · Share: ' + share;
+      },
+      onCellClick: function (r, c) {
+        var a = ADULT_ROWS[r], ch = CHILD_COLS[c];
+        var parts = [];
+        if (a > 0) parts.push(a + (a === 1 ? ' Adult' : ' Adults'));
+        if (ch > 0) parts.push(ch + (ch === 1 ? ' Child' : ' Children'));
+        var combo = parts.join(' + ');
+        Filters.state.occupancyCombos = [combo];
+        Filters.save();
+        buildFilterBar();
+        refresh();
+        UI.toast('Filtered all visuals to ' + combo + ' — clear the chip to reset', 'info');
+      }
+    });
 
     var tyC = Calc.occupancyCombinations(adTy);
     var lyC = Calc.occupancyCombinations(adLy);
@@ -643,26 +780,56 @@ var App = (function () {
       Charts.noData('cmb-explorer');
     }
 
+    renderMonthlyRtSummary();
+  }
+
+  /* Monthly summary of arrivals by room type: count, share of month, MoM
+   * movement, LY comparison, variance in value and percent. Uses all loaded
+   * months (period filters intentionally not applied so movement is visible). */
+  function renderMonthlyRtSummary() {
     var allAd = allPeriodRecords('ad');
-    var months = {};
-    allAd.forEach(function (r) { if (r._adMonth) months[r._adMonth] = 1; });
-    var monthList = Object.keys(months).sort();
-    var top5 = rankRows.slice(0, 5).map(function (r) { return r.name; });
-    if (monthList.length && top5.length) {
-      var series = top5.map(function (combo, i) {
-        return {
-          name: combo,
-          color: FLORA.chartPalette[i % FLORA.chartPalette.length],
-          data: monthList.map(function (m) {
-            var recs = allAd.filter(function (r) { return r._adMonth === m && r._occ === combo; });
-            return Calc.calculateArrivalRooms(recs);
-          })
-        };
+    var byMonth = Calc.groupBy(allAd, function (r) { return r._adMonth; });
+    var monthList = Object.keys(byMonth).sort();
+    var rows = [];
+    monthList.forEach(function (m, mi) {
+      var monthRecs = byMonth[m];
+      var monthTotal = Calc.calculateArrivalRooms(monthRecs);
+      var byRtg = Calc.groupBy(monthRecs, function (r) { return r._rtg; });
+      Object.keys(byRtg).sort().forEach(function (g) {
+        var ty = Calc.calculateArrivalRooms(byRtg[g]);
+        var prevMonth = mi > 0 ? monthList[mi - 1] : null;
+        var mom = null;
+        if (prevMonth) {
+          var prevRecs = (Calc.groupBy(byMonth[prevMonth], function (r) { return r._rtg; })[g]) || [];
+          mom = Calc.calculateArrivalRooms(prevRecs);
+        }
+        var lyMonth = Calc.shiftMonth(m, -1);
+        var lyRecs = byMonth[lyMonth]
+          ? (Calc.groupBy(byMonth[lyMonth], function (r) { return r._rtg; })[g] || [])
+          : null;
+        var ly = lyRecs === null ? null : Calc.calculateArrivalRooms(lyRecs);
+        rows.push({
+          month: m, rtg: g, ty: ty,
+          share: Calc.share(ty, monthTotal),
+          mom: mom, ly: ly
+        });
       });
-      Charts.line('cmb-trend', monthList, series);
-    } else {
-      Charts.noData('cmb-trend');
-    }
+    });
+    rows.sort(function (a, b) { return a.month === b.month ? b.ty - a.ty : (a.month < b.month ? 1 : -1); });
+    UI.table(document.getElementById('cmb-trend'), {
+      pageSize: 14,
+      columns: [
+        { key: 'month', label: 'Month' },
+        { key: 'rtg', label: 'Room Type' },
+        { key: 'ty', label: 'Arrivals', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'share', label: 'Share of Month', cls: 'num', fmt: Calc.fmtPct },
+        { key: 'momv', label: 'MoM', cls: 'num', html: true, fmt: function (v, r) { return r.mom === null ? '<span class="muted">–</span>' : UI.varianceHtml(r.ty, r.mom); } },
+        { key: 'ly', label: 'Last Year', cls: 'num', fmt: function (v) { return v === null ? 'N/A' : Calc.fmtInt(v); } },
+        { key: 'lyv', label: 'vs LY', cls: 'num', html: true, fmt: function (v, r) { return UI.varianceHtml(r.ty, r.ly); } }
+      ],
+      rows: rows,
+      emptyText: 'No arrival data loaded'
+    });
   }
 
   /* ================= Tabs 4 & 5 — Arrival / Departure Patterns ================= */
@@ -676,19 +843,26 @@ var App = (function () {
     var timeField = label + ' Time';
     var tyR = tyRecords(basis), lyR = lyRecords(basis);
 
+    // Hourly distribution: 24 one-hour intervals (+ Unknown when present)
     var tyTotals = Calc.timeGroupTotals(tyR, groupField, roomsField);
     var lyTotals = Calc.timeGroupTotals(lyR, groupField, roomsField);
-    var distRows = TIME_GROUP_LABELS.map(function (l) {
-      return { name: l, ty: tyTotals[l] || 0, ly: lyR.length ? (lyTotals[l] || 0) : null };
+    var distRows = TIME_GROUPS.map(function (g) {
+      return { name: g.short, full: g.label, ty: tyTotals[g.label] || 0, ly: lyR.length ? (lyTotals[g.label] || 0) : null };
     });
+    if (tyTotals[TIME_GROUP_UNKNOWN] || lyTotals[TIME_GROUP_UNKNOWN]) {
+      distRows.push({ name: 'Unk', full: TIME_GROUP_UNKNOWN, ty: tyTotals[TIME_GROUP_UNKNOWN] || 0, ly: lyR.length ? (lyTotals[TIME_GROUP_UNKNOWN] || 0) : null });
+    }
     Charts.vbar(prefix + '-dist', distRows, {
       tyLabel: label + ' Rooms',
       onClick: function (row) {
-        openRecordsModal(label + 's — ' + row.name, tyR.filter(function (r) {
-          return r[groupField] === row.name && (r[roomsField] || 0) > 0;
+        openRecordsModal(label + 's — ' + row.full, tyR.filter(function (r) {
+          return r[groupField] === row.full && (r[roomsField] || 0) > 0;
         }));
       }
     });
+
+    // Hour × day-of-week heatmap with peak periods highlighted via intensity
+    renderHourDowHeatmap(prefix + '-dow-heat', tyR, dateField, groupField, roomsField, label);
 
     var all = allPeriodRecords(basis);
     var monthField = basis === 'ad' ? '_adMonth' : '_ddMonth';
@@ -727,6 +901,9 @@ var App = (function () {
     renderPatternHeatmap(prefix + '-by-rtg', tyR, function (r) { return r._rtg; }, groupField, roomsField);
     renderPatternHeatmap(prefix + '-by-seg', tyR, function (r) { return r._seg; }, groupField, roomsField);
 
+    // Room-type hourly pattern table: volume, share, peak hour, TY/LY, variance
+    renderRtgPatternTable(prefix + '-rtg-table', tyR, lyR, groupField, roomsField, label);
+
     var detail = tyR.filter(function (r) { return (r[roomsField] || 0) > 0; });
     detail.sort(function (a, b) { return a[dateField] < b[dateField] ? 1 : -1; });
     UI.table(document.getElementById(prefix + '-detail'), {
@@ -753,6 +930,76 @@ var App = (function () {
     };
   }
 
+  /* Hour-of-day × day-of-week heatmap; peaks stand out through intensity. */
+  function renderHourDowHeatmap(elId, recs, dateField, groupField, roomsField, label) {
+    var DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    var grid = {};
+    var total = 0;
+    recs.forEach(function (r) {
+      var w = r[roomsField];
+      if (w === null || w === undefined || w <= 0) return;
+      var d = r[dateField];
+      if (!d) return;
+      var g = r[groupField];
+      var hourIdx = -1;
+      for (var i = 0; i < TIME_GROUPS.length; i++) if (TIME_GROUPS[i].label === g) { hourIdx = i; break; }
+      if (hourIdx === -1) return; // Unknown times excluded from the grid, shown in DQ
+      var p = d.split('-');
+      var dow = (new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay() + 6) % 7; // Mon=0
+      var k = hourIdx + '|' + dow;
+      grid[k] = (grid[k] || 0) + w;
+      total += w;
+    });
+    var cells = [];
+    Object.keys(grid).forEach(function (k) {
+      var p = k.split('|');
+      cells.push([+p[0], +p[1], grid[k]]);
+    });
+    Charts.heatmap(elId, TIME_GROUPS.map(function (g) { return g.short; }), DOW, cells, {
+      cellLabel: function (v) {
+        var share = total > 0 ? Calc.fmtPct((v[2] / total) * 100) : 'N/A';
+        return DOW[v[1]] + ' ' + TIME_GROUPS[v[0]].label + '\n' + label + ' rooms: ' + Calc.fmtInt(v[2]) + ' · Share: ' + share;
+      }
+    });
+  }
+
+  /* Per-room-type hourly pattern summary table. */
+  function renderRtgPatternTable(elId, tyR, lyR, groupField, roomsField, label) {
+    var tyG = Calc.groupBy(tyR, function (r) { return r._rtg; });
+    var lyG = Calc.groupBy(lyR, function (r) { return r._rtg; });
+    var tyTotal = Calc.sumField(tyR, roomsField);
+    var names = {};
+    Object.keys(tyG).forEach(function (k) { names[k] = 1; });
+    Object.keys(lyG).forEach(function (k) { names[k] = 1; });
+    var rows = Object.keys(names).filter(function (g) { return g !== UNMAPPED || Filters.state.includeUnmapped; }).map(function (g) {
+      var ty = Calc.sumField(tyG[g] || [], roomsField);
+      var ly = lyR.length ? Calc.sumField(lyG[g] || [], roomsField) : null;
+      var peak = Calc.peakTimeGroups(Calc.timeGroupTotals(tyG[g] || [], groupField, roomsField));
+      var props = {};
+      (tyG[g] || []).forEach(function (r) { if ((r[roomsField] || 0) > 0) props[r['Property']] = 1; });
+      return {
+        rtg: g, property: Object.keys(props).sort().join(', ') || '—',
+        ty: ty, ly: ly, share: Calc.share(ty, tyTotal),
+        peak: peak.peaks.join(' & ') || 'N/A', peakRooms: peak.value
+      };
+    }).sort(function (a, b) { return b.ty - a.ty; });
+    UI.table(document.getElementById(elId), {
+      pageSize: 12,
+      columns: [
+        { key: 'rtg', label: 'Room Type' },
+        { key: 'property', label: 'Property' },
+        { key: 'ty', label: label + ' Rooms TY', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'ly', label: label + ' Rooms LY', cls: 'num', fmt: function (v) { return v === null ? 'N/A' : Calc.fmtInt(v); } },
+        { key: 'var', label: 'Variance', cls: 'num', html: true, fmt: function (v, r) { return UI.varianceHtml(r.ty, r.ly); } },
+        { key: 'share', label: 'Share', cls: 'num', fmt: Calc.fmtPct },
+        { key: 'peak', label: 'Peak ' + label + ' Hour' },
+        { key: 'peakRooms', label: 'Rooms in Peak', cls: 'num', fmt: Calc.fmtInt }
+      ],
+      rows: rows,
+      emptyText: 'No ' + label.toLowerCase() + ' records in the current selection'
+    });
+  }
+
   function renderPatternHeatmap(elId, recs, rowFn, groupField, roomsField) {
     var groups = Calc.groupBy(recs, rowFn);
     var rowNames = Object.keys(groups).filter(function (g) { return g !== UNMAPPED || Filters.state.includeUnmapped; }).sort();
@@ -764,55 +1011,102 @@ var App = (function () {
         if (totals[l]) cells.push([xi, yi, totals[l]]);
       });
     });
-    var shortLabels = TIME_GROUP_LABELS.map(function (l) { return l.replace(' AM–', '–').replace(' PM–', '–').replace('Unknown / Invalid Time', 'Unknown'); });
+    var shortLabels = TIME_GROUPS.map(function (g) { return g.short; }).concat(['Unk']);
     Charts.heatmap(elId, shortLabels, rowNames, cells, {
       cellLabel: function (v) { return rowNames[v[1]] + ' · ' + TIME_GROUP_LABELS[v[0]] + ': ' + Calc.fmtInt(v[2]); }
     });
   }
 
   /* ================= Tab 6 — Room Number Statistics ================= */
+  var rnRtgFilter = '';   // section-local room-type slicer
+  var rnHeatMetric = 'arrivals';
+
   function renderRoomNumbers() {
-    var adTy = tyRecords('ad'), adLy = lyRecords('ad');
+    var adTyAll = tyRecords('ad'), adLyAll = lyRecords('ad');
+    var bdTyAll = tyRecords('bd');
+
+    // Section slicer: narrow this tab's visuals to one Room Type Group
+    var rtgSet = {};
+    adTyAll.forEach(function (r) { if (r._rtg && (Filters.state.includeUnmapped || r._rtg !== UNMAPPED)) rtgSet[r._rtg] = 1; });
+    var rtgList = Object.keys(rtgSet).sort();
+    if (rnRtgFilter && rtgList.indexOf(rnRtgFilter) === -1) rnRtgFilter = '';
+    var slicer = document.getElementById('rn-rtg-slicer');
+    slicer.innerHTML = '<button type="button" data-rtg="" class="' + (rnRtgFilter === '' ? 'active' : '') + '">All Room Types</button>' +
+      rtgList.map(function (g) {
+        return '<button type="button" data-rtg="' + UI.esc(g) + '" class="' + (rnRtgFilter === g ? 'active' : '') + '">' + UI.esc(g) + '</button>';
+      }).join('');
+    slicer.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () { rnRtgFilter = b.dataset.rtg; renderRoomNumbers(); };
+    });
+
+    function bySlicer(list) {
+      return rnRtgFilter ? list.filter(function (r) { return r._rtg === rnRtgFilter; }) : list;
+    }
+    var adTy = bySlicer(adTyAll), adLy = bySlicer(adLyAll), bdTy = bySlicer(bdTyAll);
     var arrOnly = adTy.filter(function (r) { return (r['Arrival Rooms'] || 0) > 0 && r['Room Number']; });
 
     var rows = byGroupTyLy(adTy, adLy, function (r) { return r['Room Number'] || ''; }, Calc.calculateArrivalRooms)
       .filter(function (r) { return r.name && (r.ty > 0 || (r.ly || 0) > 0); })
       .sort(function (a, b) { return (b.ty || 0) - (a.ty || 0); });
 
-    Charts.hbar('rn-top', rows.slice(0, 20), {
+    // enrich tooltip data: room type + room nights per room
+    var infoByRoom = {};
+    arrOnly.forEach(function (r) {
+      var i = infoByRoom[r['Room Number']] || (infoByRoom[r['Room Number']] = { rtgs: {}, rn: 0 });
+      i.rtgs[r._rtg] = 1;
+    });
+    bdTy.forEach(function (r) {
+      if (!r['Room Number'] || r['Room Nights'] === null) return;
+      var i = infoByRoom[r['Room Number']] || (infoByRoom[r['Room Number']] = { rtgs: {}, rn: 0 });
+      i.rn += r['Room Nights'];
+    });
+    var topRows = rows.slice(0, 20).map(function (r) {
+      var i = infoByRoom[r.name] || { rtgs: {}, rn: 0 };
+      r.share = null;
+      r.tooltipExtra = 'Room type: ' + (Object.keys(i.rtgs).join(', ') || '—') + ' · Room nights: ' + Calc.fmtInt(i.rn);
+      return r;
+    });
+    Charts.hbar('rn-top', topRows, {
       tyLabel: 'Arrival Rooms',
       onClick: function (row) { openRoomDrilldown(row.name, adTy); }
     });
-
-    var allAd = allPeriodRecords('ad').filter(function (r) { return (r['Arrival Rooms'] || 0) > 0 && r['Room Number']; });
-    var months = {};
-    allAd.forEach(function (r) { if (r._adMonth) months[r._adMonth] = 1; });
-    var monthList = Object.keys(months).sort();
-    var top15 = rows.slice(0, 15).map(function (r) { return r.name; });
-    if (monthList.length && top15.length) {
-      var cells = [];
-      top15.forEach(function (rm, yi) {
-        monthList.forEach(function (m, xi) {
-          var v = Calc.calculateArrivalRooms(allAd.filter(function (r) { return r['Room Number'] === rm && r._adMonth === m; }));
-          if (v) cells.push([xi, yi, v]);
-        });
+    var inst = echarts.getInstanceByDom(document.getElementById('rn-top'));
+    if (inst) {
+      inst.setOption({
+        tooltip: {
+          formatter: function (params) {
+            var list = Array.isArray(params) ? params : [params];
+            var row = topRows.slice().sort(function (a, b) { return (a.ty || 0) - (b.ty || 0); })[list[0].dataIndex];
+            var html = '<strong>Room ' + UI.esc(row.name) + '</strong><br/>' + row.tooltipExtra;
+            html += '<br/>Arrivals TY: ' + Calc.fmtInt(row.ty);
+            if (row.ly !== null && row.ly !== undefined) {
+              var v = Calc.calculateVariance(row.ty, row.ly);
+              html += '<br/>Arrivals LY: ' + Calc.fmtInt(row.ly) + '<br/>Variance: ' + Calc.fmtVarAbs(v.abs) + ' (' + Calc.fmtVarPct(v.pct) + ')';
+            }
+            return html;
+          }
+        }
       });
-      Charts.heatmap('rn-heatmap', monthList, top15, cells, {
-        cellLabel: function (v) { return 'Room ' + top15[v[1]] + ' · ' + monthList[v[0]] + ': ' + Calc.fmtInt(v[2]) + ' arrivals'; }
-      });
-    } else {
-      Charts.noData('rn-heatmap');
     }
+
+    renderRoomMonthHeat(bdTy, adTy);
+    renderFloorAnalysis(adTy, adLy, bdTy);
 
     var tableRows = rows.slice(0, 200).map(function (r) {
       var recs = arrOnly.filter(function (x) { return x['Room Number'] === r.name; });
+      var info = infoByRoom[r.name] || { rn: 0 };
+      r.roomNights = info.rn;
       var combos = Calc.occupancyCombinations(recs);
       var topCombo = Object.keys(combos).sort(function (a, b) { return combos[b] - combos[a]; })[0] || 'N/A';
       var peak = Calc.calculatePeakArrivalGroup(recs);
       var props = {};
       recs.forEach(function (x) { props[x['Property']] = 1; });
+      var rtgsHere = {};
+      recs.forEach(function (x) { rtgsHere[x._rtg] = 1; });
       return {
         room: r.name, property: Object.keys(props).join(', '),
+        rtg: Object.keys(rtgsHere).sort().join(', ') || '—',
+        roomNights: info.rn,
         ty: r.ty, ly: r.ly, topCombo: topCombo,
         peak: peak.peaks.join(' & ') || 'N/A'
       };
@@ -822,15 +1116,191 @@ var App = (function () {
       columns: [
         { key: 'room', label: 'Room Number' },
         { key: 'property', label: 'Property' },
-        { key: 'ty', label: 'Arrival Rooms TY', cls: 'num', fmt: Calc.fmtInt },
-        { key: 'ly', label: 'Arrival Rooms LY', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'rtg', label: 'Room Type' },
+        { key: 'ty', label: 'Arrivals TY', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'ly', label: 'Arrivals LY', cls: 'num', fmt: Calc.fmtInt },
         { key: 'var', label: 'Variance', cls: 'num', html: true, fmt: function (v, r) { return UI.varianceHtml(r.ty, r.ly); } },
+        { key: 'roomNights', label: 'Room Nights', cls: 'num', fmt: Calc.fmtInt },
         { key: 'topCombo', label: 'Top Combination' },
-        { key: 'peak', label: 'Peak Arrival Time' }
+        { key: 'peak', label: 'Peak Arrival Hour' }
       ],
       rows: tableRows,
       onRowClick: function (row) { openRoomDrilldown(row.room, adTy); },
       emptyText: 'No arrival records in the current selection'
+    });
+  }
+
+  /* Room Number × Month heatmap: rooms as rows, each loaded/selected month as
+   * a column (never expanded to days), switchable metric, totals + tooltips. */
+  var RN_HEAT_METRICS = {
+    arrivals: { label: 'Arrivals', fmt: Calc.fmtInt },
+    roomnights: { label: 'Room Nights', fmt: Calc.fmtInt },
+    occupancy: { label: 'Occupancy %', fmt: Calc.fmtPct },
+    revenue: { label: 'Revenue', fmt: function (v) { return v === null ? '–' : Charts.fmtShort(v); } }
+  };
+
+  function renderRoomMonthHeat(bdTy, adTy) {
+    document.querySelectorAll('#rn-heat-metric button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.metric === rnHeatMetric);
+      b.onclick = function () { rnHeatMetric = b.dataset.metric; renderRoomMonthHeat(tyRecords('bd'), tyRecords('ad')); };
+    });
+    var container = document.getElementById('rn-heatmap');
+
+    // months: the selected months when the Month filter is active, else all loaded
+    var monthsSel = Filters.state.months.slice().sort();
+    var allAd = allPeriodRecords('ad');
+    var allBd = allPeriodRecords('bd');
+    if (rnRtgFilter) {
+      allAd = allAd.filter(function (r) { return r._rtg === rnRtgFilter; });
+      allBd = allBd.filter(function (r) { return r._rtg === rnRtgFilter; });
+    }
+    if (!monthsSel.length) {
+      var mset = {};
+      allBd.forEach(function (r) { if (r._bdMonth) mset[r._bdMonth] = 1; });
+      monthsSel = Object.keys(mset).sort();
+    }
+    if (!monthsSel.length) { container.innerHTML = '<div class="no-data">No Data</div>'; return; }
+
+    // top rooms by TY arrivals in scope
+    var arrByRoom = {};
+    adTy.forEach(function (r) {
+      var w = r['Arrival Rooms'];
+      if (w === null || w <= 0 || !r['Room Number']) return;
+      arrByRoom[r['Room Number']] = (arrByRoom[r['Room Number']] || 0) + w;
+    });
+    var roomList = Object.keys(arrByRoom).sort(function (a, b) { return arrByRoom[b] - arrByRoom[a]; }).slice(0, 15);
+    if (!roomList.length) { container.innerHTML = '<div class="no-data">No arrival records in the current selection</div>'; return; }
+
+    // per room per month aggregates
+    var agg = {};
+    function cell(room, m) { var k = room + '|' + m; return agg[k] || (agg[k] = { arrivals: 0, rn: 0, rev: 0 }); }
+    allAd.forEach(function (r) {
+      var w = r['Arrival Rooms'];
+      if (w !== null && w > 0 && r['Room Number'] && r._adMonth) cell(r['Room Number'], r._adMonth).arrivals += w;
+    });
+    allBd.forEach(function (r) {
+      if (!r['Room Number'] || !r._bdMonth) return;
+      var c = cell(r['Room Number'], r._bdMonth);
+      if (r['Room Nights'] !== null) c.rn += r['Room Nights'];
+      if (r['Revenue'] !== null) c.rev += r['Revenue'];
+    });
+    function daysInMonth(m) {
+      var p = m.split('-');
+      var full = new Date(Date.UTC(+p[0], +p[1], 0)).getUTCDate();
+      if (latestBd && latestBd.substring(0, 7) === m) return Math.min(full, +latestBd.substring(8, 10));
+      return full;
+    }
+    function metricVal(c, m) {
+      if (!c) return null;
+      if (rnHeatMetric === 'arrivals') return c.arrivals || null;
+      if (rnHeatMetric === 'roomnights') return c.rn || null;
+      if (rnHeatMetric === 'revenue') return c.rev || null;
+      if (rnHeatMetric === 'occupancy') {
+        var d = daysInMonth(m);
+        return d > 0 && c.rn ? (c.rn / d) * 100 : null;
+      }
+      return null;
+    }
+    var md = RN_HEAT_METRICS[rnHeatMetric];
+    UI.heatTable(container, {
+      corner: 'Room ↓ / Month →',
+      rowLabels: roomList,
+      colLabels: monthsSel,
+      value: function (r, c) { return metricVal(agg[roomList[r] + '|' + monthsSel[c]], monthsSel[c]); },
+      fmt: function (v) { return v === null ? '–' : md.fmt(v); },
+      rowTotal: rnHeatMetric === 'occupancy' ? null : function (r) {
+        var s = 0;
+        monthsSel.forEach(function (m) { var v = metricVal(agg[roomList[r] + '|' + m], m); if (v) s += v; });
+        return s;
+      },
+      colTotal: rnHeatMetric === 'occupancy' ? null : function (c) {
+        var s = 0;
+        roomList.forEach(function (rm) { var v = metricVal(agg[rm + '|' + monthsSel[c]], monthsSel[c]); if (v) s += v; });
+        return s;
+      },
+      title: function (r, c, v) {
+        var x = agg[roomList[r] + '|' + monthsSel[c]];
+        if (!x) return 'No records';
+        return 'Room ' + roomList[r] + ' · ' + monthsSel[c] +
+          '\nArrivals: ' + Calc.fmtInt(x.arrivals) + ' · Room nights: ' + Calc.fmtInt(x.rn) +
+          '\nRevenue: ' + Charts.fmtShort(x.rev) +
+          '\nOccupancy: ' + (daysInMonth(monthsSel[c]) > 0 ? Calc.fmtPct((x.rn / daysInMonth(monthsSel[c])) * 100) : 'N/A');
+      },
+      onCellClick: function (r) { openRoomDrilldown(roomList[r], adTy); }
+    });
+  }
+
+  /* Floor analysis from the two-digit room-number prefix (01–12 = floors 1–12).
+   * Room numbers stay text with leading zeros; anything else → Unmapped. */
+  function floorOf(roomNumber) {
+    var s = String(roomNumber || '').trim();
+    var m = s.match(/^(\d{2})/);
+    if (m) {
+      var f = parseInt(m[1], 10);
+      if (f >= 1 && f <= 12) return 'Floor ' + f;
+    }
+    return 'Unmapped Room Numbers';
+  }
+
+  function renderFloorAnalysis(adTy, adLy, bdTy) {
+    var p = tyPeriod();
+    var nDates = Calc.includedDates(p.from, p.to, latestBd).length;
+    var floors = {};
+    function fl(name) {
+      return floors[name] || (floors[name] = {
+        arrivalsTy: 0, arrivalsLy: 0, rn: 0, rev: 0, rooms: {}, occupiedRooms: {}
+      });
+    }
+    adTy.forEach(function (r) {
+      var w = r['Arrival Rooms'];
+      if (w !== null && w > 0 && r['Room Number']) fl(floorOf(r['Room Number'])).arrivalsTy += w;
+    });
+    adLy.forEach(function (r) {
+      var w = r['Arrival Rooms'];
+      if (w !== null && w > 0 && r['Room Number']) fl(floorOf(r['Room Number'])).arrivalsLy += w;
+    });
+    bdTy.forEach(function (r) {
+      if (!r['Room Number']) return;
+      var f = fl(floorOf(r['Room Number']));
+      f.rooms[r['Room Number']] = 1;
+      if (r['Room Nights'] !== null && r['Room Nights'] > 0) {
+        f.rn += r['Room Nights'];
+        f.occupiedRooms[r['Room Number']] = 1;
+      }
+      if (r['Revenue'] !== null) f.rev += r['Revenue'];
+    });
+    var hasLy = adLy.length > 0;
+    var names = Object.keys(floors).sort(function (a, b) {
+      var na = a.match(/(\d+)/), nb = b.match(/(\d+)/);
+      if (a.indexOf('Unmapped') === 0) return 1;
+      if (b.indexOf('Unmapped') === 0) return -1;
+      return (+na[1]) - (+nb[1]);
+    });
+    var rows = names.map(function (n) {
+      var f = floors[n];
+      var roomsObserved = Object.keys(f.rooms).length;
+      var occ = (roomsObserved > 0 && nDates > 0) ? (f.rn / (roomsObserved * nDates)) * 100 : null;
+      return {
+        floor: n, arrivalsTy: f.arrivalsTy, arrivalsLy: hasLy ? f.arrivalsLy : null,
+        occupiedRooms: Object.keys(f.occupiedRooms).length, roomsObserved: roomsObserved,
+        rn: f.rn, occ: occ, rev: f.rev, adr: f.rn > 0 ? f.rev / f.rn : null
+      };
+    });
+    UI.table(document.getElementById('floor-table'), {
+      pageSize: 14,
+      columns: [
+        { key: 'floor', label: 'Floor' },
+        { key: 'arrivalsTy', label: 'Arrivals TY', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'arrivalsLy', label: 'Arrivals LY', cls: 'num', fmt: function (v) { return v === null ? 'N/A' : Calc.fmtInt(v); } },
+        { key: 'var', label: 'Variance', cls: 'num', html: true, fmt: function (v, r) { return UI.varianceHtml(r.arrivalsTy, r.arrivalsLy); } },
+        { key: 'occupiedRooms', label: 'Occupied Rooms', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'rn', label: 'Room Nights', cls: 'num', fmt: Calc.fmtInt },
+        { key: 'occ', label: 'Occupancy %', cls: 'num', fmt: Calc.fmtPct },
+        { key: 'rev', label: 'Revenue', cls: 'num', fmt: function (v) { return Charts.fmtShort(v); } },
+        { key: 'adr', label: 'ADR', cls: 'num', fmt: function (v) { return v === null ? 'N/A' : v.toFixed(1); } }
+      ],
+      rows: rows,
+      emptyText: 'No records in the current selection'
     });
   }
 
@@ -1181,13 +1651,9 @@ var App = (function () {
     document.getElementById('upload-back').onclick = function () { startUploadStep1Again(); };
     document.getElementById('upload-cancel').onclick = cancelUpload;
     document.getElementById('upload-next').onclick = function () {
-      var mapped = {};
-      pendingUpload.headerInfo.mapping.forEach(function (m) {
-        var f = pendingUpload.overrides.hasOwnProperty(m.col) ? pendingUpload.overrides[m.col] : m.field;
-        if (f) mapped[f] = true;
-      });
-      if (!mapped['Business Date'] || !mapped['Property']) {
-        UI.toast('Business Date and Property must both be mapped before continuing.', 'error');
+      var cov = Importer.mappingCoverage(pendingUpload.headerInfo, pendingUpload.overrides);
+      if (cov.missingRequired.length) {
+        UI.toast('Required column(s) not mapped: ' + cov.missingRequired.join(', ') + '. Map them or fix the source file before continuing.', 'error');
         return;
       }
       renderUploadStep3();
@@ -1203,18 +1669,42 @@ var App = (function () {
   }
 
   function renderUploadStep3() {
-    UI.loader(true, 'Analyzing upload…');
+    // progress UI inside the wizard so large files never look frozen
+    document.getElementById('upload-modal-title').textContent = 'Upload — Analyzing…';
+    var body = document.getElementById('upload-modal-body');
+    body.innerHTML = '<div class="progress-wrap"><div class="progress-label" id="upload-progress-label">Preparing rows…</div>' +
+      '<div class="progress-track"><div class="progress-fill" id="upload-progress-fill" style="width:0%"></div></div></div>';
+    function setProgress(pct, label) {
+      var f = document.getElementById('upload-progress-fill');
+      var l = document.getElementById('upload-progress-label');
+      if (f) f.style.width = pct + '%';
+      if (l) l.textContent = label;
+    }
     setTimeout(function () {
       try {
         var sheet = pendingUpload.parsed.sheets[pendingUpload.sheetIdx];
         var sourceMeta = { fileName: pendingUpload.parsed.fileName, sheetName: sheet.name };
         var candidates = Importer.buildRecords(sheet.rows, pendingUpload.headerInfo, pendingUpload.overrides, sourceMeta);
+        setProgress(10, 'Normalized ' + candidates.length.toLocaleString() + ' rows. Classifying…');
         var existingByKey = new Map();
         records.forEach(function (r) { existingByKey.set(r.key, r); });
-        var cls = Importer.classify(candidates, existingByKey);
+        Importer.classifyAsync(candidates, existingByKey, function (done, total) {
+          setProgress(10 + Math.round((done / Math.max(total, 1)) * 88),
+            'Classifying ' + done.toLocaleString() + ' of ' + total.toLocaleString() + ' rows…');
+        }).then(function (cls) {
+          renderUploadPreview(cls, sourceMeta);
+        });
+      } catch (err) {
+        UI.toast('Preview failed: ' + err.message, 'error');
+        cancelUpload();
+      }
+    }, 30);
+  }
+
+  function renderUploadPreview(cls, sourceMeta) {
+    try {
         pendingUpload.classification = cls;
         pendingUpload.sourceMeta = sourceMeta;
-        UI.loader(false);
 
         document.getElementById('upload-modal-title').textContent = 'Upload — Step 3 of 3 · Preview & Confirm';
         var body = document.getElementById('upload-modal-body');
@@ -1227,10 +1717,13 @@ var App = (function () {
           map.forEach(function (v, k) { items.push(UI.esc(k) + ' (' + v + ')'); });
           return '<div class="unmapped-block"><strong>' + title + ':</strong> ' + items.join(' · ') + '</div>';
         }
+        var cov = Importer.mappingCoverage(pendingUpload.headerInfo, pendingUpload.overrides);
         body.innerHTML =
           '<p class="upload-file-name">File: <strong>' + UI.esc(sourceMeta.fileName) + '</strong> · Worksheet: <strong>' + UI.esc(sourceMeta.sheetName) + '</strong>' +
           ' · Coverage: <strong>' + (cls.minBd || '?') + ' → ' + (cls.maxBd || '?') + '</strong>' +
           ' · Properties: <strong>' + Array.from(cls.properties).join(', ') + '</strong></p>' +
+          (cov.missing.length ? '<div class="unmapped-block"><strong>Columns not present in this file:</strong> ' +
+            cov.missing.map(UI.esc).join(', ') + '. These fields will be blank on imported records.</div>' : '') +
           '<div class="stat-grid">' +
           statCard('Total Rows', cls.total) +
           statCard('New Records', cls.newRecords.length, 'good') +
@@ -1258,15 +1751,15 @@ var App = (function () {
         document.getElementById('upload-back').onclick = renderUploadStep2;
         document.getElementById('upload-cancel').onclick = cancelUpload;
         document.getElementById('upload-confirm').onclick = confirmUpload;
-      } catch (err) {
-        UI.loader(false);
-        UI.toast('Preview failed: ' + err.message, 'error');
-      }
-    }, 30);
+    } catch (err) {
+      UI.toast('Preview failed: ' + err.message, 'error');
+      cancelUpload();
+    }
   }
 
   function confirmUpload() {
-    UI.loader(true, 'Importing…');
+    var n = pendingUpload.classification.newRecords.length + pendingUpload.classification.updates.length;
+    UI.loader(true, 'Writing ' + n.toLocaleString() + ' records to the local database…');
     Importer.commit(pendingUpload.classification, pendingUpload.sourceMeta).then(function (batch) {
       return reloadFromDb().then(function () {
         UI.loader(false);

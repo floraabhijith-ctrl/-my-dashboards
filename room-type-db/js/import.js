@@ -19,7 +19,7 @@ var Importer = (function () {
           },
           error: function (err) { reject(err); }
         });
-      } else {
+      } else if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm')) {
         var reader = new FileReader();
         reader.onload = function (e) {
           try {
@@ -37,12 +37,30 @@ var Importer = (function () {
               return { name: sn, rows: rows };
             });
             resolve({ fileName: file.name, sheets: sheets });
-          } catch (err) { reject(err); }
+          } catch (err) {
+            reject(new Error('The file could not be read as an Excel workbook. It may be corrupted, password-protected, or an unsupported format. (' + err.message + ')'));
+          }
         };
-        reader.onerror = function () { reject(reader.error); };
+        reader.onerror = function () { reject(new Error('The file could not be read from disk.')); };
         reader.readAsArrayBuffer(file);
+      } else {
+        reject(new Error('Unsupported file type "' + (name.split('.').pop() || '?') + '". Upload an .xlsx, .xls, or .csv file.'));
       }
     });
+  }
+
+  /* Report which expected standard fields are covered by a mapping. */
+  function mappingCoverage(headerInfo, mappingOverrides) {
+    var mapped = {};
+    headerInfo.mapping.forEach(function (m) {
+      var f = mappingOverrides && mappingOverrides.hasOwnProperty(m.col) ? mappingOverrides[m.col] : m.field;
+      if (f) mapped[f] = true;
+    });
+    return {
+      mapped: Object.keys(mapped),
+      missing: FIELDS.filter(function (f) { return !mapped[f]; }),
+      missingRequired: ['Business Date', 'Property'].filter(function (f) { return !mapped[f]; })
+    };
   }
 
   /* Find the most plausible header row: the row with the most alias matches
@@ -182,6 +200,65 @@ var Importer = (function () {
 
   function bump(map, k) { map.set(k, (map.get(k) || 0) + 1); }
 
+  /* Chunked, non-blocking variant of classify() for large files: processes
+   * candidates in slices, yielding to the event loop between slices so the
+   * page never freezes, and reporting progress via onProgress(done, total). */
+  function classifyAsync(candidates, existingByKey, onProgress) {
+    var CHUNK = 2500;
+    return new Promise(function (resolve) {
+      var seenInFile = new Map();
+      var result = {
+        newRecords: [], updates: [], duplicates: 0, invalid: [],
+        unmappedRoomTypes: new Map(), unmappedMarketGroups: new Map(),
+        unmappedAccountManagers: new Map(), invalidCombos: new Map(),
+        minBd: '', maxBd: '', properties: new Set(), total: candidates.length
+      };
+      var i = 0;
+      function step() {
+        var end = Math.min(i + CHUNK, candidates.length);
+        for (; i < end; i++) {
+          classifyOne(candidates[i], existingByKey, seenInFile, result);
+        }
+        if (onProgress) onProgress(i, candidates.length);
+        if (i < candidates.length) setTimeout(step, 0);
+        else resolve(result);
+      }
+      step();
+    });
+  }
+
+  function classifyOne(rec, existingByKey, seenInFile, result) {
+    Norm.deriveGroups(rec);
+    var problems = validateRecord(rec);
+    if (problems.length && problems.some(function (p) { return p.field === 'Business Date' || p.field === 'Property'; })) {
+      result.invalid.push({ rec: rec, problems: problems });
+      return;
+    }
+    if (rec._rtg === UNMAPPED && rec['Booked Room Type']) bump(result.unmappedRoomTypes, rec['Booked Room Type']);
+    if (rec._seg === UNMAPPED && rec['Market Group']) bump(result.unmappedMarketGroups, rec['Market Group']);
+    if (rec._amg === UNMAPPED && rec['Account Manager']) bump(result.unmappedAccountManagers, rec['Account Manager']);
+    if (!rec._validCombo && rec._rtg !== UNMAPPED) bump(result.invalidCombos, rec['Property'] + ' + ' + rec._rtg);
+    if (rec['Business Date']) {
+      if (!result.minBd || rec['Business Date'] < result.minBd) result.minBd = rec['Business Date'];
+      if (!result.maxBd || rec['Business Date'] > result.maxBd) result.maxBd = rec['Business Date'];
+    }
+    if (rec['Property']) result.properties.add(rec['Property']);
+    var key = Norm.recordKey(rec);
+    var sig = Norm.contentSignature(rec);
+    rec.key = key;
+    if (seenInFile.has(key)) {
+      if (seenInFile.get(key) === sig) { result.duplicates++; return; }
+      seenInFile.set(key, sig);
+      replaceInFileLists(result, key, rec);
+      return;
+    }
+    seenInFile.set(key, sig);
+    var existing = existingByKey.get(key);
+    if (!existing) result.newRecords.push(rec);
+    else if (Norm.contentSignature(existing) === sig) result.duplicates++;
+    else result.updates.push({ rec: rec, prev: existing });
+  }
+
   function replaceInFileLists(result, key, rec) {
     for (var i = 0; i < result.newRecords.length; i++) {
       if (result.newRecords[i].key === key) { result.newRecords[i] = rec; return; }
@@ -258,7 +335,9 @@ var Importer = (function () {
     parseFile: parseFile,
     detectHeaders: detectHeaders,
     buildRecords: buildRecords,
+    mappingCoverage: mappingCoverage,
     classify: classify,
+    classifyAsync: classifyAsync,
     commit: commit
   };
 })();

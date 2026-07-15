@@ -78,9 +78,9 @@
     <div id="ov-kpis" class="kpi-grid"></div>
     <div class="chart-grid">
       <div class="card"><h3>Room Type Arrival Share <span class="hint" title="SUM(Arrival Rooms) share by Room Type Group, Arrival Date basis">ⓘ</span></h3><div class="chart" id="ov-arr-share"></div></div>
-      <div class="card"><h3>Room Type Departure Share <span class="hint" title="SUM(Departure Rooms) share by Room Type Group, Departure Date basis">ⓘ</span></h3><div class="chart" id="ov-dep-share"></div></div>
       <div class="card"><h3>Room Type Occupancy % <span class="hint" title="Room Nights Sold ÷ available room-nights per group. Never averaged across properties.">ⓘ</span></h3><div class="chart" id="ov-occ"></div></div>
-      <div class="card wide"><h3>Arrival &amp; Departure Trend <span class="hint" title="Daily SUM(Arrival Rooms) and SUM(Departure Rooms) over the selected period">ⓘ</span></h3><div class="chart tall" id="ov-trend"></div></div>
+      <div class="card"><h3>Arrival Trend <span class="hint" title="Daily SUM(Arrival Rooms) with the corresponding last-year value and variance in the tooltip">ⓘ</span></h3><div class="chart" id="ov-arr-trend"></div></div>
+      <div class="card"><h3>Departure Trend <span class="hint" title="Daily SUM(Departure Rooms) with the corresponding last-year value and variance in the tooltip">ⓘ</span></h3><div class="chart" id="ov-dep-trend"></div></div>
     </div>
   </section>
 
@@ -100,34 +100,52 @@
       <div id="rt-table"></div>
     </div>
     <div class="chart-grid">
-      <div class="card"><h3>Room Type Comparison (selected metric)</h3><div class="chart" id="rt-share-chart"></div></div>
-      <div class="card"><h3>Daily Occupancy Trend <span class="hint" title="Combined occupancy of all valid Property + Room Type combinations in scope">ⓘ</span></h3><div class="chart" id="rt-occ-trend"></div></div>
-      <div class="card wide"><h3>Property × Room Type Matrix (selected metric)</h3><div class="chart tall" id="rt-matrix"></div></div>
+      <div class="card"><h3>Property Occupancy <span class="hint" title="Occupied room-nights ÷ total sellable room-nights × 100 for the current selection, with last year and pp variance">ⓘ</span></h3>
+        <div class="chart" id="rt-gauge"></div>
+        <div class="gauge-detail" id="rt-gauge-detail"></div></div>
+      <div class="card"><h3>Room Type Share of Property Occupancy <span class="hint" title="Occupied rooms for each room type ÷ total occupied rooms × 100">ⓘ</span></h3><div class="chart" id="rt-occ-share"></div></div>
+      <div class="card"><h3>Room Type Comparison (selected metric) <span class="hint" title="Current year solid, last year hatched — both labeled">ⓘ</span></h3><div class="chart" id="rt-share-chart"></div></div>
+      <div class="card"><h3>Daily Occupancy Trend <span class="hint" title="Combined occupancy of all valid Property + Room Type combinations in scope, with LY, variance, and the 100% capacity reference">ⓘ</span></h3><div class="chart" id="rt-occ-trend"></div></div>
     </div>
   </section>
 
   <!-- Tab 3: Guest Occupancy Combinations -->
   <section class="tab-panel" id="tab-combos">
     <div class="chart-grid">
-      <div class="card"><h3>Adults × Children Heatmap <span class="hint" title="SUM(Arrival Rooms) per combination. Click a cell to view records.">ⓘ</span></h3><div class="chart tall" id="cmb-heatmap"></div></div>
+      <div class="card wide">
+        <div class="card-head-row">
+          <h3>Adults × Children Matrix <span class="hint" title="Rows 1–8 adults, columns 0–6 children. Click a cell to filter every visual to that combination. Hover for full detail.">ⓘ</span></h3>
+          <div class="seg-buttons" id="cmb-metric">
+            <button type="button" data-metric="arrivals">Arrivals</button>
+            <button type="button" data-metric="reservations">Reservations</button>
+            <button type="button" data-metric="roomnights">Room Nights</button>
+            <button type="button" data-metric="revenue">Revenue</button>
+            <button type="button" data-metric="adr">ADR</button>
+            <button type="button" data-metric="share">Share %</button>
+          </div>
+        </div>
+        <div id="cmb-heatmap"></div>
+      </div>
       <div class="card"><h3>Combination Ranking <span class="hint" title="Top combinations by SUM(Arrival Rooms). Click a bar to view records.">ⓘ</span></h3><div class="chart tall" id="cmb-ranking"></div></div>
       <div class="card">
         <div class="card-head-row"><h3>Room Type Combination Explorer</h3>
           <select id="cmb-rtg-select" class="inline-select"></select></div>
         <div class="chart" id="cmb-explorer"></div>
       </div>
-      <div class="card"><h3>Monthly Combination Trend <span class="hint" title="Top 5 combinations across all loaded months (period filters not applied here)">ⓘ</span></h3><div class="chart" id="cmb-trend"></div></div>
+      <div class="card wide"><h3>Monthly Arrivals by Room Type <span class="hint" title="Arrival count, share of month, month-on-month movement, and last-year comparison per room type. All loaded months shown.">ⓘ</span></h3><div id="cmb-trend"></div></div>
     </div>
   </section>
 
   <!-- Tab 4: Arrival Patterns -->
   <section class="tab-panel" id="tab-arrivals">
     <div class="chart-grid">
-      <div class="card wide"><h3>Arrival Time Distribution <span class="hint" title="SUM(Arrival Rooms) per standardized time group. Unknown/invalid times shown but never selected as peak.">ⓘ</span></h3><div class="chart" id="arr-dist"></div></div>
-      <div class="card"><h3>Peak Arrival Time by Month <span class="hint" title="All loaded months (period filters not applied)">ⓘ</span></h3><div id="arr-peak-month"></div></div>
-      <div class="card"><h3>Peak Arrival Time by Week (ISO, Mon–Sun)</h3><div id="arr-peak-week"></div></div>
-      <div class="card"><h3>Arrival Pattern by Room Type</h3><div class="chart tall" id="arr-by-rtg"></div></div>
-      <div class="card"><h3>Arrival Pattern by SEGGRP</h3><div class="chart tall" id="arr-by-seg"></div></div>
+      <div class="card wide"><h3>Hourly Arrival Distribution <span class="hint" title="SUM(Arrival Rooms) per one-hour interval, 00:00–23:59. Unknown/invalid times shown but never selected as peak.">ⓘ</span></h3><div class="chart" id="arr-dist"></div></div>
+      <div class="card wide"><h3>Arrival Heatmap — Hour × Day of Week <span class="hint" title="Peak arrival periods stand out by intensity. Tooltip shows rooms and contribution share.">ⓘ</span></h3><div class="chart tall" id="arr-dow-heat"></div></div>
+      <div class="card"><h3>Peak Arrival Hour by Month <span class="hint" title="All loaded months (period filters not applied)">ⓘ</span></h3><div id="arr-peak-month"></div></div>
+      <div class="card"><h3>Peak Arrival Hour by Week (ISO, Mon–Sun)</h3><div id="arr-peak-week"></div></div>
+      <div class="card wide"><h3>Room Type Arrival Patterns <span class="hint" title="Hourly volume, share, peak hour, and last-year comparison per room type">ⓘ</span></h3><div id="arr-rtg-table"></div></div>
+      <div class="card"><h3>Arrival Pattern by Room Type (hourly heatmap)</h3><div class="chart tall" id="arr-by-rtg"></div></div>
+      <div class="card"><h3>Arrival Pattern by SEGGRP (hourly heatmap)</h3><div class="chart tall" id="arr-by-seg"></div></div>
       <div class="card wide">
         <div class="card-head-row"><h3>Arrival Detail</h3>
           <button type="button" class="btn btn-small" id="arr-export">Export CSV</button></div>
@@ -139,11 +157,13 @@
   <!-- Tab 5: Departure Patterns -->
   <section class="tab-panel" id="tab-departures">
     <div class="chart-grid">
-      <div class="card wide"><h3>Departure Time Distribution <span class="hint" title="SUM(Departure Rooms) per standardized time group. Unknown/invalid times shown but never selected as peak.">ⓘ</span></h3><div class="chart" id="dep-dist"></div></div>
-      <div class="card"><h3>Peak Departure Time by Month <span class="hint" title="All loaded months (period filters not applied)">ⓘ</span></h3><div id="dep-peak-month"></div></div>
-      <div class="card"><h3>Peak Departure Time by Week (ISO, Mon–Sun)</h3><div id="dep-peak-week"></div></div>
-      <div class="card"><h3>Departure Pattern by Room Type</h3><div class="chart tall" id="dep-by-rtg"></div></div>
-      <div class="card"><h3>Departure Pattern by SEGGRP</h3><div class="chart tall" id="dep-by-seg"></div></div>
+      <div class="card wide"><h3>Hourly Departure Distribution <span class="hint" title="SUM(Departure Rooms) per one-hour interval, 00:00–23:59. Unknown/invalid times shown but never selected as peak.">ⓘ</span></h3><div class="chart" id="dep-dist"></div></div>
+      <div class="card wide"><h3>Departure Heatmap — Hour × Day of Week <span class="hint" title="Peak departure periods stand out by intensity. Tooltip shows rooms and contribution share.">ⓘ</span></h3><div class="chart tall" id="dep-dow-heat"></div></div>
+      <div class="card"><h3>Peak Departure Hour by Month <span class="hint" title="All loaded months (period filters not applied)">ⓘ</span></h3><div id="dep-peak-month"></div></div>
+      <div class="card"><h3>Peak Departure Hour by Week (ISO, Mon–Sun)</h3><div id="dep-peak-week"></div></div>
+      <div class="card wide"><h3>Room Type Departure Patterns <span class="hint" title="Hourly volume, share, peak hour, and last-year comparison per room type">ⓘ</span></h3><div id="dep-rtg-table"></div></div>
+      <div class="card"><h3>Departure Pattern by Room Type (hourly heatmap)</h3><div class="chart tall" id="dep-by-rtg"></div></div>
+      <div class="card"><h3>Departure Pattern by SEGGRP (hourly heatmap)</h3><div class="chart tall" id="dep-by-seg"></div></div>
       <div class="card wide">
         <div class="card-head-row"><h3>Departure Detail</h3>
           <button type="button" class="btn btn-small" id="dep-export">Export CSV</button></div>
@@ -154,9 +174,27 @@
 
   <!-- Tab 6: Room Number Statistics -->
   <section class="tab-panel" id="tab-roomnumbers">
+    <div class="card">
+      <div class="card-head-row">
+        <h3>Room Type Focus <span class="hint" title="Narrows every visual in this tab to one room-type label">ⓘ</span></h3>
+        <div class="seg-buttons slicer-scroll" id="rn-rtg-slicer"></div>
+      </div>
+    </div>
     <div class="chart-grid">
-      <div class="card"><h3>Most Frequently Used Room Numbers <span class="hint" title="SUM(Arrival Rooms) per room number. Click a bar for the drill-down.">ⓘ</span></h3><div class="chart tall" id="rn-top"></div></div>
-      <div class="card"><h3>Room Number × Month Heatmap <span class="hint" title="Top rooms across all loaded months">ⓘ</span></h3><div class="chart tall" id="rn-heatmap"></div></div>
+      <div class="card"><h3>Most Frequently Used Room Numbers <span class="hint" title="SUM(Arrival Rooms) per room number, current year solid vs last year hatched. Click a bar for the drill-down. Tooltip: room type, arrivals, room nights, TY, LY, variance.">ⓘ</span></h3><div class="chart tall" id="rn-top"></div></div>
+      <div class="card">
+        <div class="card-head-row">
+          <h3>Room Number × Month <span class="hint" title="Rooms as rows, each selected month as a column. Click a room for the drill-down.">ⓘ</span></h3>
+          <div class="seg-buttons" id="rn-heat-metric">
+            <button type="button" data-metric="arrivals">Arrivals</button>
+            <button type="button" data-metric="roomnights">Room Nights</button>
+            <button type="button" data-metric="occupancy">Occupancy</button>
+            <button type="button" data-metric="revenue">Revenue</button>
+          </div>
+        </div>
+        <div id="rn-heatmap"></div>
+      </div>
+      <div class="card wide"><h3>Floor Analysis <span class="hint" title="Floor from the two-digit room-number prefix (01–12). Occupancy uses rooms observed on each floor in the data. Unrecognized prefixes go to Unmapped Room Numbers.">ⓘ</span></h3><div id="floor-table"></div></div>
       <div class="card wide"><h3>Room Number Performance <span class="hint" title="Click a row for the full drill-down">ⓘ</span></h3><div id="rn-table"></div></div>
     </div>
   </section>

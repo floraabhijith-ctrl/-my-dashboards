@@ -150,16 +150,17 @@ var PHYSICAL_INVENTORY = {
   'FIHDXB': { 'BASE': 155, 'SUI': 12, 'CON': 60 }
 };
 
-/* Standardized time groups — PROJECT_CONTEXT.md §10. Minutes are inclusive bounds. */
-var TIME_GROUPS = [
-  { label: '12:00 AM–5:59 AM', from: 0, to: 359 },
-  { label: '6:00 AM–8:59 AM', from: 360, to: 539 },
-  { label: '9:00 AM–11:59 AM', from: 540, to: 719 },
-  { label: '12:00 PM–1:59 PM', from: 720, to: 839 },
-  { label: '2:00 PM–5:59 PM', from: 840, to: 1079 },
-  { label: '6:00 PM–9:59 PM', from: 1080, to: 1319 },
-  { label: '10:00 PM–11:59 PM', from: 1320, to: 1439 }
-];
+/* Hourly operational time groups (approved change 2026-07: replaces the
+ * original 7-band grouping). 24 one-hour intervals, 00:00–00:59 … 23:00–23:59,
+ * used identically for arrivals and departures. Minutes are inclusive bounds. */
+var TIME_GROUPS = (function () {
+  var out = [];
+  for (var h = 0; h < 24; h++) {
+    var hh = (h < 10 ? '0' : '') + h;
+    out.push({ label: hh + ':00–' + hh + ':59', short: hh + ':00', hour: h, from: h * 60, to: h * 60 + 59 });
+  }
+  return out;
+})();
 var TIME_GROUP_UNKNOWN = 'Unknown / Invalid Time';
 var TIME_GROUP_LABELS = TIME_GROUPS.map(function (g) { return g.label; }).concat([TIME_GROUP_UNKNOWN]);
 

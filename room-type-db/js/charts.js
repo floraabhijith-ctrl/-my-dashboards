@@ -47,6 +47,23 @@ var Charts = (function () {
     return { left: 8, right: 24, top: 32, bottom: 8, containLabel: true };
   }
 
+  /* Abbreviate large values for on-chart labels; tooltips always carry the
+   * complete value. 1250 → 1.3k, 2400000 → 2.4M. */
+  function fmtShort(v) {
+    if (v === null || v === undefined || !isFinite(v)) return '';
+    var a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (a >= 10000) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+    return Math.round(v).toLocaleString('en-US');
+  }
+
+  /* Diagonal-hatch decal so the LY series is distinguishable without
+   * relying on colour alone. */
+  var LY_DECAL = {
+    symbol: 'line', symbolSize: 1, rotation: Math.PI / 4,
+    color: 'rgba(82,57,86,0.35)', dashArrayX: [1, 0], dashArrayY: [3, 3]
+  };
+
   /* Sorted horizontal bar, optional LY series. rows: [{name, ty, ly}] */
   function hbar(id, rows, opts) {
     opts = opts || {};
@@ -58,25 +75,34 @@ var Charts = (function () {
     var series = [];
     var mode = Filters.state.comparisonMode;
     var showTy = mode !== 'ly', showLy = mode !== 'ty' && rows.some(function (r) { return r.ly !== undefined && r.ly !== null; });
+    var showLabels = rows.length <= 20;
+    function barLabel(pos) {
+      return {
+        show: showLabels, position: pos, fontSize: 10.5, color: FLORA.colors.charcoal,
+        formatter: function (p) {
+          if (p.value === null || p.value === undefined) return '';
+          return opts.pct ? Calc.fmtPct(p.value) : fmtShort(p.value);
+        }
+      };
+    }
     if (showLy) {
       series.push({
         name: 'Last Year', type: 'bar', data: rows.map(function (r) { return r.ly; }),
-        itemStyle: { color: FLORA.lyColor }, barGap: '10%',
-        label: { show: false }
+        itemStyle: { color: FLORA.lyColor, decal: LY_DECAL }, barGap: '12%',
+        label: barLabel('right'), labelLayout: { hideOverlap: true }
       });
     }
     if (showTy) {
       series.push({
         name: opts.tyLabel || 'Current', type: 'bar', data: rows.map(function (r) { return r.ty; }),
         itemStyle: { color: FLORA.tyColor },
-        label: {
-          show: rows.length <= 14, position: 'right', fontSize: 11,
-          formatter: function (p) { return opts.pct ? Calc.fmtPct(p.value) : Calc.fmtInt(p.value); }
-        }
+        label: barLabel('right'), labelLayout: { hideOverlap: true }
       });
     }
+    var grid = baseGrid();
+    grid.right = 64; // room for end-of-bar labels so values are never clipped
     chart.setOption({
-      grid: baseGrid(),
+      grid: grid,
       legend: showLy && showTy ? { top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 11 } } : { show: false },
       tooltip: {
         trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -99,18 +125,34 @@ var Charts = (function () {
     var mode = Filters.state.comparisonMode;
     var showTy = mode !== 'ly', showLy = mode !== 'ty' && rows.some(function (r) { return r.ly !== undefined && r.ly !== null; });
     var series = [];
+    var showLabels = rows.length <= 12;
+    function colLabel() {
+      return {
+        show: showLabels, position: 'top', fontSize: 10, color: FLORA.colors.charcoal,
+        formatter: function (p) {
+          if (p.value === null || p.value === undefined) return '';
+          return opts.pct ? Calc.fmtPct(p.value) : fmtShort(p.value);
+        }
+      };
+    }
     if (showLy) {
-      series.push({ name: 'Last Year', type: 'bar', data: rows.map(function (r) { return r.ly; }), itemStyle: { color: FLORA.lyColor } });
+      series.push({
+        name: 'Last Year', type: 'bar', data: rows.map(function (r) { return r.ly; }),
+        itemStyle: { color: FLORA.lyColor, decal: LY_DECAL },
+        label: colLabel(), labelLayout: { hideOverlap: true }
+      });
     }
     if (showTy) {
       series.push({
         name: opts.tyLabel || 'Current', type: 'bar', data: rows.map(function (r) { return r.ty; }),
         itemStyle: { color: FLORA.tyColor },
-        label: { show: rows.length <= 10, position: 'top', fontSize: 10, formatter: function (p) { return opts.pct ? Calc.fmtPct(p.value) : Calc.fmtInt(p.value); } }
+        label: colLabel(), labelLayout: { hideOverlap: true }
       });
     }
+    var grid = baseGrid();
+    grid.top = 44; // headroom so top-positioned labels never clip
     chart.setOption({
-      grid: baseGrid(),
+      grid: grid,
       legend: showLy && showTy ? { top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 11 } } : { show: false },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: function (p) { return tooltipTyLy(p, rows, opts); } },
       xAxis: { type: 'category', data: rows.map(function (r) { return r.name; }), axisLabel: { fontSize: 10, interval: 0, rotate: rows.length > 8 ? 35 : 0, width: 90, overflow: 'truncate' } },
@@ -181,6 +223,40 @@ var Charts = (function () {
     }
   }
 
+  /* Occupancy-style gauge: TY needle with LY value and pp variance beneath. */
+  function gauge(id, tyPct, lyPct, title) {
+    if (tyPct === null || tyPct === undefined) { noData(id); return; }
+    clearNoData(id);
+    var chart = get(id);
+    if (!chart) return;
+    var detailLines = Calc.fmtPct(tyPct);
+    var sub = '';
+    if (Filters.state.comparisonMode !== 'ty' && lyPct !== null && lyPct !== undefined) {
+      var pp = Calc.calculatePercentagePointVariance(tyPct, lyPct);
+      sub = 'LY ' + Calc.fmtPct(lyPct) + '  (' + Calc.fmtPp(pp) + ')';
+    }
+    chart.setOption({
+      series: [{
+        type: 'gauge', startAngle: 200, endAngle: -20,
+        min: 0, max: 100, splitNumber: 5,
+        radius: '95%', center: ['50%', '60%'],
+        progress: { show: true, width: 16, itemStyle: { color: FLORA.tyColor } },
+        axisLine: { lineStyle: { width: 16, color: [[1, FLORA.colors.pearl]] } },
+        axisTick: { distance: -22, lineStyle: { color: FLORA.colors.violet } },
+        splitLine: { distance: -26, length: 8, lineStyle: { color: FLORA.colors.violet, width: 2 } },
+        axisLabel: { distance: -40, fontSize: 10, color: FLORA.colors.charcoal, formatter: '{value}%' },
+        pointer: { length: '58%', width: 5, itemStyle: { color: FLORA.colors.royalPurple } },
+        anchor: { show: true, size: 12, itemStyle: { color: FLORA.colors.royalPurple } },
+        title: { show: true, offsetCenter: [0, '52%'], fontSize: 12, color: '#6E6470' },
+        detail: {
+          valueAnimation: true, offsetCenter: [0, '28%'], fontSize: 22, fontWeight: 700,
+          color: FLORA.colors.charcoal, formatter: function (v) { return Calc.fmtPct(v); }
+        },
+        data: [{ value: Math.round(tyPct * 10) / 10, name: (title || '') + (sub ? '\n' + sub : '') }]
+      }]
+    }, true);
+  }
+
   function tooltipTyLy(params, rows, opts) {
     var list = Array.isArray(params) ? params : [params];
     var idx = list[0].dataIndex;
@@ -226,5 +302,5 @@ var Charts = (function () {
     resizeTimer = setTimeout(resizeAll, 150);
   }
 
-  return { hbar: hbar, vbar: vbar, line: line, heatmap: heatmap, noData: noData, resizeAll: resizeAll, disposeAll: disposeAll };
+  return { hbar: hbar, vbar: vbar, line: line, heatmap: heatmap, gauge: gauge, fmtShort: fmtShort, noData: noData, resizeAll: resizeAll, disposeAll: disposeAll };
 })();

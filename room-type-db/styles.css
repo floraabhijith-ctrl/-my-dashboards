@@ -132,8 +132,11 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 }
 .ms-actions button:hover { background: var(--pearl); }
 .ms-options { max-height: 230px; overflow-y: auto; }
-.ms-opt { display: flex; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 5px; font-size: 13px; cursor: pointer; }
+.ms-opt { display: flex; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 5px; font-size: 13px; cursor: pointer; user-select: none; }
 .ms-opt:hover { background: var(--ivory); }
+.ms-opt.selected { background: var(--pearl); font-weight: 600; }
+.ms-tick { width: 14px; color: var(--royal); font-weight: 700; flex-shrink: 0; }
+.ms-hint { font-size: 10px; color: var(--muted); padding: 0 2px 6px; }
 .ms-empty { padding: 10px; font-size: 12px; color: var(--muted); text-align: center; }
 
 .daterange-wrap { min-width: 230px; }
@@ -312,6 +315,25 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .unmapped-block.bad { background: #F6E3E2; border-color: #E0B6B4; color: #6E2B29; }
 .upload-note { font-size: 12.5px; color: var(--muted); }
 .drill-stats { display: flex; flex-direction: column; gap: 6px; font-size: 13px; margin-bottom: 14px; }
+
+/* ---------------- heat table (HTML heatmap with totals) ---------------- */
+.heat-table td.heat-cell { min-width: 58px; font-variant-numeric: tabular-nums; }
+.heat-table td.heat-cell.clickable { cursor: pointer; }
+.heat-table td.heat-cell.clickable:hover { outline: 2px solid var(--royal); outline-offset: -2px; }
+.heat-table .total-col, .heat-table .total-row td, .heat-table .total-row th {
+  background: var(--pearl); font-weight: 700;
+}
+.heat-table thead th { z-index: 2; }
+
+/* ---------------- upload progress ---------------- */
+.progress-wrap { padding: 24px 8px; }
+.progress-label { font-size: 13px; font-weight: 600; color: var(--royal-dark); margin-bottom: 10px; }
+.progress-track { height: 10px; background: var(--pearl); border-radius: 5px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--violet); border-radius: 5px; transition: width 0.15s ease; }
+
+/* ---------------- gauge & section slicers ---------------- */
+.gauge-detail { text-align: center; font-size: 12.5px; color: var(--charcoal); padding-top: 4px; }
+.slicer-scroll { max-width: 100%; overflow-x: auto; }
 
 /* ---------------- toasts & loader ---------------- */
 #toast-stack { position: fixed; bottom: 18px; right: 18px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }

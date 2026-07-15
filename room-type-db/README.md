@@ -190,6 +190,40 @@ an affected timezone (dates one day early, e.g. coverage starting 2025-05-31
 instead of 2025-06-01) should be **Reset** and re-imported once with the fixed
 build.
 
+## July 2026 enhancement round
+
+- **Upload**: chunked, non-blocking classification with a live progress bar;
+  required-column validation with named missing columns; clear errors for
+  unsupported/corrupted files; explicit counts of imported/updated/duplicate/
+  rejected rows; "nothing to import" state explained.
+- **Slicers**: all filters are single-select on plain click (selecting August
+  deselects July); Ctrl/Cmd+click adds intentional multi-selection; active
+  chips and Reset unchanged.
+- **Labels**: values sit outside bar ends with reserved margins, abbreviate
+  when long (full value in tooltip), and auto-hide on overlap; the LY series is
+  hatched so the two years are distinguishable without colour.
+- **Time groups**: hourly operational view (00:00–00:59 … 23:00–23:59) replaces
+  the original 7 bands everywhere, for arrivals and departures alike.
+- **Executive Overview**: Departure Share removed; separate Arrival Trend and
+  Departure Trend charts with LY and variance per day.
+- **Room Type Statistics**: Property Occupancy gauge (occupied ÷ sellable),
+  Room Type Share of Property Occupancy, improved Daily Occupancy Trend with a
+  100% capacity reference; the Property × Room Type matrix was removed.
+- **Guest Combinations**: fixed Adults(1–8) × Children(0–6) matrix with row and
+  column totals, switchable metric (Arrivals / Reservations / Room Nights /
+  Revenue / ADR / Share), "–" for empty cells, cell-click filters every visual,
+  rich tooltips; Monthly Arrivals by Room Type table with share, MoM, and LY.
+- **Arrival/Departure Patterns**: 24-hour distributions, hour × day-of-week
+  heatmaps with peak periods highlighted, per-room-type hourly pattern tables
+  (volume, share, peak hour, TY/LY, variance).
+- **Room Numbers**: section-level Room Type slicer, TY/LY bars with full
+  tooltips, Room × Month heat table (selected months as columns, switchable
+  metric incl. per-room occupancy), and a Floor Analysis (floors 1–12 from the
+  two-digit room-number prefix; unrecognized prefixes → Unmapped Room Numbers;
+  occupancy is based on rooms observed per floor in the data).
+- **Note**: the requested "Business Mix / Unoccupied" change refers to a tab
+  that does not exist in this project and was therefore not applicable.
+
 ## Known limitations
 
 - Data lives only in the browser that uploaded it — use JSON backups to move

@@ -94,6 +94,7 @@ var UI = (function () {
             '<button type="button" class="ms-all">Select All</button>' +
             '<button type="button" class="ms-clear">Clear</button>' +
           '</div>' +
+          '<div class="ms-hint">Click = single select · Ctrl/Cmd+click = multi</div>' +
           '<div class="ms-options"></div>' +
         '</div>';
 
@@ -104,18 +105,30 @@ var UI = (function () {
         optsEl.innerHTML = cfg.options().filter(function (o) {
           return !ft || String(o).toLowerCase().indexOf(ft) !== -1;
         }).map(function (o) {
-          var checked = selNow.indexOf(o) !== -1;
-          return '<label class="ms-opt"><input type="checkbox" value="' + esc(o) + '"' + (checked ? ' checked' : '') + '><span>' + esc(o) + '</span></label>';
+          var on = selNow.indexOf(o) !== -1;
+          return '<div class="ms-opt' + (on ? ' selected' : '') + '" data-val="' + esc(o) + '">' +
+            '<span class="ms-tick">' + (on ? '✓' : '') + '</span><span>' + esc(o) + '</span></div>';
         }).join('') || '<div class="ms-empty">No options</div>';
-        optsEl.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
-          cb.addEventListener('change', function () {
-            var selNow2 = cfg.selected().slice();
-            var idx = selNow2.indexOf(cb.value);
-            if (cb.checked && idx === -1) selNow2.push(cb.value);
-            if (!cb.checked && idx !== -1) selNow2.splice(idx, 1);
+        optsEl.querySelectorAll('.ms-opt').forEach(function (row) {
+          row.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var val = row.dataset.val;
+            var selNow2;
+            if (e.ctrlKey || e.metaKey) {
+              /* Ctrl/Cmd-click: intentionally add or remove from the selection */
+              selNow2 = cfg.selected().slice();
+              var idx = selNow2.indexOf(val);
+              if (idx === -1) selNow2.push(val); else selNow2.splice(idx, 1);
+            } else {
+              /* Plain click: single selection — replaces whatever was selected.
+               * Clicking the only selected value again clears back to All. */
+              var cur = cfg.selected();
+              selNow2 = (cur.length === 1 && cur[0] === val) ? [] : [val];
+            }
             cfg.onChange(selNow2);
             wrap.querySelector('.ms-trigger span').textContent = selectedLabel();
             wrap.querySelector('.ms-trigger').classList.toggle('has-sel', cfg.selected().length > 0);
+            drawOptions(wrap.querySelector('.ms-search').value);
           });
         });
       }
@@ -205,6 +218,53 @@ var UI = (function () {
     };
   }
 
+  /* ---------------- HTML heatmap matrix (with totals) ---------------- */
+  /* cfg: { rowLabels, colLabels, value(r,c) → number|null, fmt(v), title(r,c,v) → tooltip,
+   *        onCellClick(r,c,v), rowTotal(r), colTotal(c), grandTotal } */
+  function heatTable(container, cfg) {
+    var max = 0;
+    cfg.rowLabels.forEach(function (_, r) {
+      cfg.colLabels.forEach(function (_, c) {
+        var v = cfg.value(r, c);
+        if (v !== null && v > max) max = v;
+      });
+    });
+    function shade(v) {
+      if (v === null || v === undefined || max === 0) return '';
+      var t = Math.sqrt(v / max); // sqrt curve keeps low values visible
+      return 'background:rgba(82,57,86,' + (0.06 + t * 0.72).toFixed(3) + ');color:' + (t > 0.55 ? '#fff' : '#2B2B2B') + ';';
+    }
+    var html = '<div class="table-scroll"><table class="flora-table heat-table"><thead><tr><th>' +
+      esc(cfg.corner || '') + '</th>' +
+      cfg.colLabels.map(function (c) { return '<th class="num">' + esc(c) + '</th>'; }).join('') +
+      (cfg.rowTotal ? '<th class="num total-col">Total</th>' : '') + '</tr></thead><tbody>';
+    cfg.rowLabels.forEach(function (rl, r) {
+      html += '<tr><th>' + esc(rl) + '</th>';
+      cfg.colLabels.forEach(function (cl, c) {
+        var v = cfg.value(r, c);
+        var display = (v === null || v === undefined) ? '–' : cfg.fmt(v);
+        html += '<td class="num heat-cell' + (v !== null && cfg.onCellClick ? ' clickable' : '') + '" style="' + shade(v) +
+          '" data-r="' + r + '" data-c="' + c + '" title="' + esc(cfg.title ? cfg.title(r, c, v) : '') + '">' + display + '</td>';
+      });
+      if (cfg.rowTotal) html += '<td class="num total-col">' + cfg.fmt(cfg.rowTotal(r)) + '</td>';
+      html += '</tr>';
+    });
+    if (cfg.colTotal) {
+      html += '<tr class="total-row"><th>Total</th>' +
+        cfg.colLabels.map(function (_, c) { return '<td class="num">' + cfg.fmt(cfg.colTotal(c)) + '</td>'; }).join('') +
+        (cfg.grandTotal !== undefined ? '<td class="num total-col">' + cfg.fmt(cfg.grandTotal) + '</td>' : '') + '</tr>';
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+    if (cfg.onCellClick) {
+      container.querySelectorAll('.heat-cell.clickable').forEach(function (td) {
+        td.addEventListener('click', function () {
+          cfg.onCellClick(+td.dataset.r, +td.dataset.c, cfg.value(+td.dataset.r, +td.dataset.c));
+        });
+      });
+    }
+  }
+
   /* ---------------- variance cell ---------------- */
   function varianceHtml(ty, ly, isPct) {
     if (ly === null || ly === undefined) return '<span class="muted">N/A</span>';
@@ -236,7 +296,7 @@ var UI = (function () {
   return {
     esc: esc, toast: toast, loader: loader,
     openModal: openModal, closeModal: closeModal, confirmDialog: confirmDialog,
-    multiSelect: multiSelect, table: table,
+    multiSelect: multiSelect, table: table, heatTable: heatTable,
     varianceHtml: varianceHtml, kpiCard: kpiCard
   };
 })();
