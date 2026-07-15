@@ -33,7 +33,14 @@ room-type-db/
 
 The dashboard is a static site — no build step, no server-side code.
 
-- **Simplest:** open `index.html` directly in Chrome or Edge (double-click).
+- **Easiest (recommended for daily users):** download the single file
+  **`Flora_Room_Dashboard.html`** and double-click it. Everything (styles, code,
+  libraries) is bundled inside — no other files needed. Do **not** confuse it with
+  the older `Flora_Hotels_Dashboard.html` in the repository root, which is a
+  different dashboard for month statistics and will report "No data found." if you
+  feed it the Room Type export.
+- **Developer layout:** open `index.html` (requires the full `room-type-db/`
+  folder: `js/`, `vendor/`, `styles.css`).
 - **Recommended:** serve the folder so IndexedDB storage is scoped to a stable origin:
   `python3 -m http.server 8000` inside `room-type-db/`, then open
   `http://localhost:8000`. (With `file://`, some browsers isolate or evict storage
