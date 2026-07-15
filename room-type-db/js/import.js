@@ -23,8 +23,12 @@ var Importer = (function () {
         var reader = new FileReader();
         reader.onload = function (e) {
           try {
+            /* cellDates deliberately OFF: SheetJS's Date conversion shifts dates
+             * by a day in some timezones (observed in Asia/Dubai). Raw Excel
+             * serial numbers are converted with timezone-free UTC arithmetic
+             * in Norm.normalizeDate / normalizeTimeMinutes instead. */
             var wb = XLSX.read(new Uint8Array(e.target.result), {
-              type: 'array', cellDates: true, raw: true
+              type: 'array', cellDates: false, raw: true
             });
             var sheets = wb.SheetNames.map(function (sn) {
               var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {

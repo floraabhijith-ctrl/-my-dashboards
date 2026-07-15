@@ -1246,6 +1246,9 @@ var App = (function () {
             cls.invalid.slice(0, 5).map(function (iv) {
               return 'row ' + iv.rec._srcRow + ' (' + iv.problems.map(function (p) { return p.reason; }).join('; ') + ')';
             }).join(' · ') + '</div>' : '') +
+          ((cls.newRecords.length + cls.updates.length) === 0
+            ? '<div class="unmapped-block"><strong>Nothing to import:</strong> every row in this file already exists in the database with identical values, so the Confirm button is disabled. This is normal when re-uploading a file (or a date range) that was imported before.</div>'
+            : '') +
           '<p class="upload-note">Confirming will append new records, update matching records, and skip duplicates. Historical records are never removed. The import can be rolled back afterwards.</p>' +
           '<div class="modal-actions">' +
           '<button type="button" class="btn" id="upload-back">‹ Back</button>' +

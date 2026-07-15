@@ -36,7 +36,12 @@ var Norm = (function () {
     if (v === null || v === undefined || v === '') return '';
     if (v instanceof Date) {
       if (isNaN(v.getTime())) return '';
-      return fmtYmd(v.getFullYear(), v.getMonth() + 1, v.getDate());
+      /* Noon-shift + UTC getters: date-only cells arrive as midnight in either
+       * UTC or local time depending on the producing library and timezone
+       * (SheetJS lands seconds short of midnight in some zones). Shifting to
+       * midday makes the calendar date unambiguous for any offset within ±12h. */
+      var noon = new Date(v.getTime() + 12 * 3600000);
+      return fmtYmd(noon.getUTCFullYear(), noon.getUTCMonth() + 1, noon.getUTCDate());
     }
     if (typeof v === 'number' && isFinite(v)) {
       // Excel serial date (1900 date system). 25569 = days between 1900-01-01 and 1970-01-01 (+1 for Excel's leap bug).

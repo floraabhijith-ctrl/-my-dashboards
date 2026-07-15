@@ -180,6 +180,16 @@ first import (42,106 stored); IndexedDB persists across reload; the Confirm butt
 disables when a re-upload contains nothing new; all 7 tabs render with real data
 and zero console errors; all 18 Data Quality categories present.
 
+## Timezone-safe date parsing
+
+Excel date cells are read as raw serial numbers and converted with pure UTC
+arithmetic, so the calendar date is identical regardless of the computer's
+timezone (verified under Asia/Dubai, UTC, America/New_York, Pacific/Kiritimati
+UTC+14, and Pacific/Midway UTC−11). Databases imported with a pre-fix build in
+an affected timezone (dates one day early, e.g. coverage starting 2025-05-31
+instead of 2025-06-01) should be **Reset** and re-imported once with the fixed
+build.
+
 ## Known limitations
 
 - Data lives only in the browser that uploaded it — use JSON backups to move

@@ -905,7 +905,12 @@ var Norm = (function () {
     if (v === null || v === undefined || v === '') return '';
     if (v instanceof Date) {
       if (isNaN(v.getTime())) return '';
-      return fmtYmd(v.getFullYear(), v.getMonth() + 1, v.getDate());
+      /* Noon-shift + UTC getters: date-only cells arrive as midnight in either
+       * UTC or local time depending on the producing library and timezone
+       * (SheetJS lands seconds short of midnight in some zones). Shifting to
+       * midday makes the calendar date unambiguous for any offset within ±12h. */
+      var noon = new Date(v.getTime() + 12 * 3600000);
+      return fmtYmd(noon.getUTCFullYear(), noon.getUTCMonth() + 1, noon.getUTCDate());
     }
     if (typeof v === 'number' && isFinite(v)) {
       // Excel serial date (1900 date system). 25569 = days between 1900-01-01 and 1970-01-01 (+1 for Excel's leap bug).
@@ -1292,8 +1297,12 @@ var Importer = (function () {
         var reader = new FileReader();
         reader.onload = function (e) {
           try {
+            /* cellDates deliberately OFF: SheetJS's Date conversion shifts dates
+             * by a day in some timezones (observed in Asia/Dubai). Raw Excel
+             * serial numbers are converted with timezone-free UTC arithmetic
+             * in Norm.normalizeDate / normalizeTimeMinutes instead. */
             var wb = XLSX.read(new Uint8Array(e.target.result), {
-              type: 'array', cellDates: true, raw: true
+              type: 'array', cellDates: false, raw: true
             });
             var sheets = wb.SheetNames.map(function (sn) {
               var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {
@@ -4038,6 +4047,9 @@ var App = (function () {
             cls.invalid.slice(0, 5).map(function (iv) {
               return 'row ' + iv.rec._srcRow + ' (' + iv.problems.map(function (p) { return p.reason; }).join('; ') + ')';
             }).join(' · ') + '</div>' : '') +
+          ((cls.newRecords.length + cls.updates.length) === 0
+            ? '<div class="unmapped-block"><strong>Nothing to import:</strong> every row in this file already exists in the database with identical values, so the Confirm button is disabled. This is normal when re-uploading a file (or a date range) that was imported before.</div>'
+            : '') +
           '<p class="upload-note">Confirming will append new records, update matching records, and skip duplicates. Historical records are never removed. The import can be rolled back afterwards.</p>' +
           '<div class="modal-actions">' +
           '<button type="button" class="btn" id="upload-back">‹ Back</button>' +
