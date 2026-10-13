@@ -2,9 +2,12 @@
 
 The application writes to the sheet with a **service account** (a robot identity), so no user has to stay signed in and no OAuth consent screen is needed. A personal Gmail account can own the Google Cloud project; no Workspace subscription is required.
 
-## Part A — done for you (requires one-time Google authorisation in the chat)
-1. Master spreadsheet created in the Drive of floraabhijith@gmail.com with tabs **Enquiries**, **Activities**, **RateRevisions** and frozen header rows.
-2. Spreadsheet shared with the service account as Editor (once you provide its e-mail, step B4).
+## Part A — done (13 Oct 2026)
+1. Master spreadsheet **Flora Sales Enquiries (Master)** created in the Drive of floraabhijith@gmail.com, private (owner only).
+   - URL: https://docs.google.com/spreadsheets/d/1fOm5pl4ZinOH6F2TiUIVyLC0yqhkpuw3D_fA8pb5N-I/edit
+   - `GOOGLE_SHEETS_SPREADSHEET_ID=1fOm5pl4ZinOH6F2TiUIVyLC0yqhkpuw3D_fA8pb5N-I`
+   - Tabs **Enquiries** (47 columns), **Activities** (12), **RateRevisions** (9) with the application's header rows written and frozen.
+2. Pending: share the spreadsheet with the service account as Editor (step B4).
 
 ## Part B — you (about 5 minutes, all in the browser)
 1. Open <https://console.cloud.google.com/projectcreate> signed in as floraabhijith@gmail.com. Project name: `flora-sales-platform`. Create.
@@ -20,7 +23,7 @@ From the JSON file take `client_email` and `private_key`:
 SYNC_PROVIDER=google-sheets
 GOOGLE_SERVICE_ACCOUNT_EMAIL=<client_email>
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
-GOOGLE_SHEETS_SPREADSHEET_ID=<id from the sheet URL, between /d/ and /edit>
+GOOGLE_SHEETS_SPREADSHEET_ID=1fOm5pl4ZinOH6F2TiUIVyLC0yqhkpuw3D_fA8pb5N-I
 ```
 
 - Locally: put them in `flora-sales-platform/.env.local`, then run `npm run google:verify`. It confirms the token exchange, reaches the sheet, writes the headers and freezes them.
