@@ -1,0 +1,49 @@
+{
+  "name": "flora-sales-enquiry-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Flora Hospitality - Sales Enquiry Management & Commercial Intelligence Platform",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:seed:demo": "SEED_DEMO=true tsx src/scripts/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@libsql/client": "0.18.0",
+    "bcryptjs": "3.0.3",
+    "date-fns": "4.4.0",
+    "date-fns-tz": "3.2.0",
+    "drizzle-orm": "0.45.4",
+    "jose": "6.2.12",
+    "lucide-react": "1.56.0",
+    "next": "15.5.27",
+    "nodemailer": "10.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "recharts": "3.10.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "26.6.5",
+    "@types/nodemailer": "8.0.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "drizzle-kit": "0.31.11",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
