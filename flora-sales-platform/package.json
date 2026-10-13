@@ -13,7 +13,8 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "db:seed:demo": "SEED_DEMO=true tsx src/scripts/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "google:verify": "tsx src/scripts/verify-google-sheets.ts"
   },
   "dependencies": {
     "@libsql/client": "0.18.0",
