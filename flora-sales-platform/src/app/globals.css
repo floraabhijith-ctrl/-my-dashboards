@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-plum-50: #f6f1f6;
+  --color-plum-100: #ebe0ec;
+  --color-plum-200: #d6c2d8;
+  --color-plum-300: #bfa3c3;
+  --color-plum-400: #ab96b5;
+  --color-plum-500: #7c6283;
+  --color-plum-600: #523956;
+  --color-plum-700: #432d46;
+  --color-plum-800: #332236;
+  --color-plum-900: #221625;
+  --color-ivory: #f9f5f2;
+  --color-pearl: #f2e9e0;
+  --color-pearl-dark: #e6d9cb;
+  --color-violet: #ab96b5;
+  --color-ink: #2d2035;
+  --color-muted: #7a6b82;
+  --color-line: #e8dfd6;
+  --color-success: #1f7a4d;
+  --color-success-bg: #e3f3ea;
+  --color-warning: #a7651b;
+  --color-warning-bg: #fbeedb;
+  --color-danger: #b23a3a;
+  --color-danger-bg: #fbe5e5;
+  --color-info: #3b5f8a;
+  --color-info-bg: #e5edf7;
+  --font-sans: "Roboto", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 12px;
+  --shadow-card: 0 1px 2px rgba(82, 57, 86, 0.06), 0 4px 14px rgba(82, 57, 86, 0.06);
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--color-ivory);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card { @apply bg-white rounded-[var(--radius-card)] border border-line shadow-[var(--shadow-card)]; }
+  .card-pearl { @apply bg-pearl rounded-[var(--radius-card)] border border-pearl-dark; }
+  .input {
+    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-muted/70 focus:outline-none focus:ring-2 focus:ring-plum-400/60 focus:border-plum-400 disabled:bg-pearl/60 disabled:text-muted;
+  }
+  .label { @apply block text-xs font-medium uppercase tracking-wide text-muted mb-1; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap bg-plum-600 text-white hover:bg-plum-700 focus:outline-none focus:ring-2 focus:ring-plum-400/60; }
+  .btn-secondary { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap bg-pearl text-plum-700 border border-pearl-dark hover:bg-pearl-dark; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-plum-600 hover:bg-plum-50; }
+  .btn-danger { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap bg-danger text-white hover:bg-red-800; }
+  .table-wrap { @apply overflow-x-auto rounded-[var(--radius-card)] border border-line bg-white shadow-[var(--shadow-card)]; }
+  .table { @apply min-w-full text-sm; }
+  .table thead th { @apply sticky top-0 bg-pearl text-left text-[11px] font-semibold uppercase tracking-wide text-plum-700 px-3 py-2.5 whitespace-nowrap border-b border-pearl-dark; }
+  .table tbody td { @apply px-3 py-2.5 border-b border-line/70 align-top whitespace-nowrap; }
+  .table tbody tr:hover { @apply bg-plum-50/60; }
+  .kpi-value { @apply text-2xl font-semibold text-plum-700 tabular-nums; }
+  .section-title { @apply text-base font-semibold text-plum-700; }
+  .nav-link { @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-plum-100/90 hover:bg-white/10 hover:text-white transition-colors; }
+  .nav-link-active { @apply bg-white/15 text-white font-medium; }
+}
+
+.recharts-default-tooltip { border-radius: 10px !important; border-color: var(--color-line) !important; font-family: var(--font-sans); }
